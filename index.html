@@ -59,10 +59,75 @@
   #ending h2 { color:var(--accent); font-size:20px; }
   .replay { margin-top:18px; background:transparent; color:var(--ink); border:1px solid var(--accent);
     border-radius:10px; padding:11px 22px; font-family:inherit; font-size:15px; cursor:pointer; }
+
+  /* ---------- INTRO SCREENS ---------- */
+  #intro { width:100%; max-width:430px; min-height:100vh; padding:30px 22px 40px;
+    display:flex; flex-direction:column; }
+  .screen { display:none; flex:1; flex-direction:column; }
+  .screen.on { display:flex; }
+  .titlewrap { flex:1; display:flex; flex-direction:column; justify-content:center; text-align:center; }
+  .crest { width:64px; height:64px; margin:0 auto 22px; border:2px solid var(--accent);
+    border-radius:50% 50% 50% 50% / 60% 60% 40% 40%; display:flex; align-items:center;
+    justify-content:center; color:var(--accent); font-size:26px; }
+  #intro h1 { font-size:40px; margin:0; letter-spacing:1px; }
+  .sub { color:var(--gold); font-size:15px; margin-top:8px; font-style:italic; }
+  .itag { color:var(--muted); font-size:15px; margin-top:26px; line-height:1.6; }
+  #intro h2 { color:var(--accent); font-size:14px; text-transform:uppercase; letter-spacing:1.5px; margin:0 0 6px; }
+  .lead { font-size:17px; margin:0 0 22px; }
+  .forces { display:flex; flex-direction:column; gap:12px; margin-bottom:8px; }
+  .force { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .force .fname { color:var(--gold); font-size:14px; }
+  .force .fdesc { color:var(--muted); font-size:13px; margin-top:3px; }
+  .fnote { color:var(--muted); font-size:14px; font-style:italic; margin-top:20px; }
+  .spacer { flex:1; }
+  button.go { width:100%; background:var(--accent); color:#fff; border:none; border-radius:11px;
+    padding:15px; font-family:inherit; font-size:16px; cursor:pointer; margin-top:24px; letter-spacing:.5px; }
+  button.go:active { opacity:.85; }
+  button.back { background:none; border:none; color:var(--muted); font-family:inherit; font-size:14px;
+    cursor:pointer; margin-top:14px; align-self:center; }
 </style>
 </head>
 <body>
-<div id="app">
+
+<div id="intro">
+  <div class="screen on" id="s1">
+    <div class="titlewrap">
+      <div class="crest">✦</div>
+      <h1>The Charter</h1>
+      <div class="sub">a century in one club</div>
+      <p class="itag">A club is born. You will run it for a hundred years.<br>
+      The world will spend every one of them trying to change what it is.</p>
+    </div>
+    <button class="go" onclick="show('s2')">Begin →</button>
+  </div>
+
+  <div class="screen" id="s2">
+    <h2>What this is</h2>
+    <p class="lead">You don't pick the team. You run the institution that outlives every player, manager and owner who ever passed through it.</p>
+    <p style="font-size:15px; color:var(--ink); margin:0 0 16px;">Each era, the rules of the game change underneath you. Professionalism. Television. Foreign money. The stadium as spectacle. A choice that wins you one decade can ruin you in the next.</p>
+    <p style="font-size:15px; color:var(--muted); margin:0;">At the heart of your club is a charter, one line your founders swore to. The whole century is pressure on that line. Hold it and fall behind. Break it and win, and wonder what you've become.</p>
+    <div class="spacer"></div>
+    <button class="go" onclick="show('s3')">The four forces →</button>
+    <button class="back" onclick="show('s1')">← Back</button>
+  </div>
+
+  <div class="screen" id="s3">
+    <h2>What you balance</h2>
+    <p class="lead">Four things pull against each other. Let any one hit zero and the club doesn't survive the century.</p>
+    <div class="forces">
+      <div class="force"><div class="fname">Money</div><div class="fdesc">The engine. It grows hungrier every era, and it always wants something in return.</div></div>
+      <div class="force"><div class="fname">Fans</div><div class="fdesc">The people who were here before the money, and will be here after it.</div></div>
+      <div class="force"><div class="fname">Power</div><div class="fdesc">Your standing with whoever holds the whip that decade. The league, the city, the owner, the state.</div></div>
+      <div class="force"><div class="fname">Soul</div><div class="fdesc">How much of the club is still the club. The charter, the place, the people. The thing money keeps trying to buy.</div></div>
+    </div>
+    <p class="fnote">Win on the pitch and the trophies follow. But the dice never give you a sure thing, and a stronger squad only tilts the odds. There's always a reason to buy success now.</p>
+    <div class="spacer"></div>
+    <button class="go" onclick="proceed()">Choose your club →</button>
+    <button class="back" onclick="show('s2')">← Back</button>
+  </div>
+</div>
+
+<div id="app" style="display:none">
   <header><h1>The Charter</h1><div class="year" id="year">Bilbao · 1900</div></header>
   <div class="meters" id="meters"></div>
   <div class="squad" id="squadBox"></div>
@@ -660,7 +725,17 @@ function showEnding(){
 
 document.getElementById("rp").onclick=()=>location.reload();
 
-showFoundingStep();
+function show(id){
+  document.querySelectorAll('#intro .screen').forEach(s=>s.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+  window.scrollTo(0,0);
+}
+
+function proceed(){
+  document.getElementById('intro').style.display='none';
+  document.getElementById('app').style.display='flex';
+  showFoundingStep();
+}
 </script>
 </body>
 </html>
