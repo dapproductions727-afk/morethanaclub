@@ -107,7 +107,7 @@
     <p style="font-size:15px; color:var(--ink); margin:0 0 16px;">Each era, the rules of the game change underneath you. Professionalism. Television. Foreign money. The stadium as spectacle. A choice that wins you one decade can ruin you in the next.</p>
     <p style="font-size:15px; color:var(--muted); margin:0;">At the heart of your club is a charter, one line your founders swore to. The whole century is pressure on that line. Hold it and fall behind. Break it and win, and wonder what you've become.</p>
     <div class="spacer"></div>
-    <button class="go" onclick="show('s3')">The four forces →</button>
+    <button class="go" onclick="show('s3')">The three forces →</button>
     <button class="back" onclick="show('s1')">← Back</button>
   </div>
 
@@ -350,6 +350,27 @@ const STORIES = {
     bonus:{ money:10 },
     // Commercial compromises cost 40% more soul.
     mod:(d,tags)=>{ if(tags.includes('commercial')&&d.soul<0) d.soul=Math.round(d.soul*1.4); }
+  },
+  factory: {
+    name:"Factory team",
+    flavor:"The works side. Men who clocked off and played. The club and the shift are the same people.",
+    bonus:{ fans:10 },
+    // Losing fans to commercial moves hurts more — the works built this.
+    mod:(d,tags)=>{ if(tags.includes('commercial')&&d.fans<0) d.fans=Math.round(d.fans*1.4); }
+  },
+  church: {
+    name:"Church team",
+    flavor:"Founded by clergy and choirboys to keep young men out of the pub. Money was always a little vulgar.",
+    bonus:{ soul:15 },
+    // Allergic to commerce: any commercial soul cost is amplified.
+    mod:(d,tags)=>{ if(tags.includes('commercial')&&d.soul<0) d.soul=Math.round(d.soul*1.5); }
+  },
+  merchants: {
+    name:"Merchants' club",
+    flavor:"Built by local shopkeepers and traders. Comfortable with a ledger. Comfortable, perhaps, with a deal.",
+    bonus:{ money:20 },
+    // Starts rich, but ceding control to bigger money costs extra soul.
+    mod:(d,tags)=>{ if(tags.includes('ownership')&&d.soul<0) d.soul=Math.round(d.soul*1.3); }
   }
 };
 
@@ -435,8 +456,9 @@ let charterBroken = false;
 let current = 0;
 let seasonsLeft = 0;
 let seasonInEra = 0;
-let founding = { region:null, story:null, rule:null };
+let founding = { region:null, story:null, rules:[] };
 let foundingStep = 0;
+const MAX_RULES = 3;
 
 function strength(){ return squad.reduce((s,p)=>s+p.rating,0); }
 
@@ -461,7 +483,31 @@ function playSeason(){
   // 20-player squads: typical ~215 str. Steep curve, cap at 50%.
   // 160 = depleted; 215 = typical; 280+ = stacked with stars.
   let chance=Math.min(0.50,Math.max(0.03,(s-160)/280));
-  return { won:Math.random()<chance, chance, strength:s };
+  const roll=Math.random();
+  const won=roll<chance;
+  // A near-miss: lost, but the roll landed close to the win line.
+  // Good teams produce exciting seasons that draw fans even without silverware.
+  const nearMiss = !won && roll < chance+0.18;
+  return { won, nearMiss, chance, strength:s };
+}
+
+/* Season result feeds back into money and fans, the Conquest idea:
+   you grow a following through good football, not only by winning. */
+function seasonRewards(r){
+  if(r.won){
+    // Championship jackpot.
+    return { money:+8, fans:+6, label:"Champions", cls:"win" };
+  }
+  if(r.nearMiss){
+    // Close, thrilling season. Fans drift in even without a trophy.
+    return { money:+1, fans:+3, label:"A thrilling near-miss", cls:"win" };
+  }
+  if(r.chance < 0.10){
+    // A dismal season from a weak squad. Interest fades.
+    return { money:0, fans:-2, label:"A poor season", cls:"lose" };
+  }
+  // A respectable mid-table season. Holds steady.
+  return { money:0, fans:0, label:"Mid-table", cls:"lose" };
 }
 
 function clamp(n){ return Math.max(0,Math.min(100,n)); }
@@ -469,8 +515,11 @@ function clamp(n){ return Math.max(0,Math.min(100,n)); }
 function applyModifiers(delta,tags){
   REGIONS[founding.region].mod(delta,tags);
   STORIES[founding.story].mod(delta,tags);
-  RULES[founding.rule].mod(delta,tags);
+  founding.rules.forEach(k=>RULES[k].mod(delta,tags));
 }
+
+function ruleNames(){ return founding.rules.map(k=>RULES[k].name).join(", "); }
+function swore(k){ return founding.rules.includes(k); }
 
 /* =========================================================================
    FOUNDING FLOW — shown before the first scene
@@ -480,8 +529,9 @@ const foundingFlow = [
   { sp:"1 of 3 · The ground", pr:"Your club is about to be born. First: where?",
     choices:[{group:'region',key:'enclave'},{group:'region',key:'milltown'},{group:'region',key:'docktown'},{group:'region',key:'cathedral'},{group:'region',key:'capital'},{group:'region',key:'immigrant'}] },
   { sp:"2 of 3 · The founders", pr:"Who built this club, and why?",
-    choices:[{group:'story',key:'cooperative'},{group:'story',key:'students'}] },
-  { sp:"3 of 3 · The charter", pr:"One rule goes in the founding document. The century will spend a hundred years trying to make you break it.",
+    choices:[{group:'story',key:'cooperative'},{group:'story',key:'students'},{group:'story',key:'factory'},{group:'story',key:'church'},{group:'story',key:'merchants'}] },
+  { sp:"3 of 3 · The charter", multi:true,
+    pr:"Swear up to three rules into the founding document. Each earns a starting bonus, and each closes a door you'll later wish you'd left open. The more you swear, the harder the century.",
     choices:[{group:'rule',key:'local'},{group:'rule',key:'ownership'},{group:'rule',key:'stayput'},{group:'rule',key:'affordable'},{group:'rule',key:'homegrown'},{group:'rule',key:'politics'},{group:'rule',key:'debtfree'}] },
 ];
 
@@ -490,7 +540,22 @@ function getFoundingData(group,key){
 }
 
 function pickFounding(group,key){
+  if(group==='rule'){
+    // Multi-select: toggle the rule, then redraw the same step.
+    const i=founding.rules.indexOf(key);
+    if(i>=0) founding.rules.splice(i,1);
+    else if(founding.rules.length<MAX_RULES) founding.rules.push(key);
+    showFoundingStep();
+    return;
+  }
   founding[group]=key;
+  foundingStep++;
+  if(foundingStep>=foundingFlow.length) showFoundingSummary();
+  else showFoundingStep();
+}
+
+function advanceFromRules(){
+  if(founding.rules.length===0) return; // must swear at least one
   foundingStep++;
   if(foundingStep>=foundingFlow.length) showFoundingSummary();
   else showFoundingStep();
@@ -503,24 +568,40 @@ function showFoundingStep(){
   document.getElementById("year").textContent="1900 · Before the first season";
   document.getElementById("sp").textContent=f.sp;
   document.getElementById("pr").textContent=f.pr;
-  document.getElementById("fo").textContent="";
   document.getElementById("rollOut").innerHTML="";
   document.getElementById("nx").style.display="none";
   const c=document.getElementById("ch"); c.innerHTML="";
   f.choices.forEach(o=>{
     const opt=getFoundingData(o.group,o.key);
     const b=document.createElement("button"); b.className="c";
-    b.innerHTML=`${opt.name}<small>${opt.flavor||opt.note}</small>`;
+    const chosen = f.multi && founding.rules.includes(o.key);
+    if(chosen) b.style.borderColor="var(--gold)";
+    const mark = chosen ? "✓ " : "";
+    b.innerHTML=`${mark}${opt.name}<small>${opt.flavor||opt.note}</small>`;
     b.onclick=()=>pickFounding(o.group,o.key);
     c.appendChild(b);
   });
+  if(f.multi){
+    const n=founding.rules.length;
+    document.getElementById("fo").textContent = n===0
+      ? "Swear at least one rule to continue."
+      : `${n} rule${n===1?'':'s'} sworn (max ${MAX_RULES}). Tap to toggle, then seal below.`;
+    const done=document.createElement("button"); done.className="c";
+    done.style.borderColor="var(--gold)"; done.style.textAlign="center";
+    done.style.opacity = n===0 ? "0.4" : "1";
+    done.innerHTML = "Seal the charter →";
+    done.onclick = advanceFromRules;
+    c.appendChild(done);
+  } else {
+    document.getElementById("fo").textContent="";
+  }
 }
 
 function showFoundingSummary(){
-  const r=REGIONS[founding.region], s=STORIES[founding.story], ru=RULES[founding.rule];
+  const r=REGIONS[founding.region], s=STORIES[founding.story];
   document.getElementById("year").textContent="1900 · Before the first season";
   document.getElementById("sp").textContent="Your club";
-  document.getElementById("pr").textContent=`${r.place}. ${s.name}. Charter: ${ru.name}.`;
+  document.getElementById("pr").textContent=`${r.place}. ${s.name}. Charter: ${ruleNames()}.`;
   document.getElementById("fo").textContent=r.flavor;
   document.getElementById("rollOut").innerHTML="";
   const c=document.getElementById("ch"); c.innerHTML="";
@@ -531,10 +612,13 @@ function showFoundingSummary(){
 }
 
 function initGame(){
-  const r=REGIONS[founding.region], s=STORIES[founding.story], ru=RULES[founding.rule];
-  meters.money=r.start.money+(s.bonus.money||0)+(ru.bonus.money||0);
-  meters.soul =r.start.soul +(s.bonus.soul||0) +(ru.bonus.soul||0);
-  meters.fans =r.start.fans +(s.bonus.fans||0) +(ru.bonus.fans||0);
+  const r=REGIONS[founding.region], s=STORIES[founding.story];
+  let rb={money:0,soul:0,fans:0};
+  founding.rules.forEach(k=>{ const b=RULES[k].bonus||{};
+    rb.money+=b.money||0; rb.soul+=b.soul||0; rb.fans+=b.fans||0; });
+  meters.money=clamp(r.start.money+(s.bonus.money||0)+rb.money);
+  meters.soul =clamp(r.start.soul +(s.bonus.soul||0) +rb.soul);
+  meters.fans =clamp(r.start.fans +(s.bonus.fans||0) +rb.fans);
   squad=r.squad.map(p=>({...p}));
   namei=0;
   document.getElementById("meters").style.display="";
@@ -571,10 +655,10 @@ const scenes = [
   { sp:"The board", year:"{PLACE} · 1930s", seasons:6,
     pr:"Your senior men are ageing. Pour money into the academy now, or save it?",
     ch:[
-      { t:"Fund the academy.", note:"Costs money. Future locals get better.", tags:[],
+      { t:"Fund the academy and promote a club man to coach.", note:"Costs money. Future locals get better.", tags:['homegrown-hold'],
         run:()=>{ meters.money-=15; meters.soul+=10; squad.forEach(p=>{ if(p.age<25)p.rating+=2; }); } },
-      { t:"Save the money.", note:"Coffers stay full. The pipeline runs dry.", tags:[],
-        run:()=>{ meters.money+=10; meters.soul-=5; } },
+      { t:"Hire a famous manager from abroad instead.", note:"Results now. The club's own people are passed over.", tags:['glamour','commercial'],
+        run:()=>{ meters.money-=10; meters.soul-=8; squad.forEach(p=>{ if(p.age<30)p.rating+=1; }); } },
     ] },
 
   { sp:"The broadcaster", year:"{PLACE} · 1950", seasons:6,
@@ -607,10 +691,23 @@ const scenes = [
   { sp:"The inquiry", year:"{PLACE} · 1985", seasons:5,
     pr:"A crush in the old wooden stand. Three supporters dead, dozens hurt. The safety report says the ground must close or be rebuilt. A developer has land on the edge of town and will fund a new stadium if you move.",
     ch:[
-      { t:"Take the developer's money. Build new, build out of town.", note:"The money solves the problem. The neighbourhood is left behind.", tags:['commercial','ownership'],
+      { t:"Take the developer's money. Build new, build out of town.", note:"The money solves the problem. The neighbourhood is left behind.", tags:['commercial','move'],
         run:()=>{ meters.money+=20; meters.fans-=35; meters.soul-=8; } },
-      { t:"Rebuild the old ground. Stay where you are.", note:"It costs everything. The ground is still yours.", tags:[],
+      { t:"Rebuild the old ground. Stay where you are.", note:"It costs everything, and you must borrow to do it. The ground is still yours.", tags:['stay-hold','debt'],
         run:()=>{ meters.money-=25; meters.fans+=15; meters.soul+=15; } },
+    ] },
+
+  { sp:"The new stand", year:"{PLACE} · 1990", seasons:4,
+    pr:"The terrace is full every week and the waiting list is long. A bigger stand would let thousands more working people in at the old prices. But it can't be built without borrowing.",
+    ch:[
+      { t:"Build it. Borrow the money.", note:"More fans, cheap seats. The club takes on debt.", tags:['gate-hold','debt'],
+        run:()=>{ meters.fans+=25; meters.money-=10; meters.soul+=5; } },
+      { t:"Don't build. Stay small and solvent.", note:"No debt. The waiting list stays a waiting list.", tags:['debt-hold'],
+        run:()=>{ meters.money+=5; meters.fans-=10; } },
+      { conflict:true, cond:()=>swore('affordable')&&swore('debtfree'),
+        t:"Your charter forbids both the debt and the price rise. Choose which clause to break.",
+        note:"Raise prices to fund it without borrowing: keeps debt-free, breaks affordable gate.", tags:['commercial'],
+        run:()=>{ meters.money+=15; meters.fans-=20; meters.soul-=10; charterBroken=true; } },
     ] },
 
   { sp:"The agent", year:"{PLACE} · 1995 · the Bosman ruling", seasons:5,
@@ -625,18 +722,18 @@ const scenes = [
   { sp:"The consortium", year:"{PLACE} · 2005", seasons:5,
     pr:`A media consortium will finance a title challenge: signings, wages, a new training ground. Strength is ${'${STR}'}. The repayment terms are generous until the revenue projections miss. Clubs have done this and won. Some have since ceased to exist.`,
     ch:[
-      { t:"Take the loan. Chase the title.", note:"You buy a chance. The debt is someone else's problem — until it isn't.", tags:['ownership','commercial'],
+      { t:"Take the loan. Chase the title.", note:"You buy a chance. The debt is someone else's problem, until it isn't.", tags:['ownership','commercial','debt'],
         run:()=>{ squad.push({name:"Sánchez",age:27,rating:17,foreign:false}); meters.money+=20; meters.fans-=20; meters.soul-=5; } },
-      { t:"Decline. Win with what you have or not at all.", note:"No debt. No shortcut.", tags:['ownership-hold'],
+      { t:"Decline. Win with what you have or not at all.", note:"No debt. No shortcut.", tags:['ownership-hold','debt-hold'],
         run:()=>{ meters.soul+=15; meters.fans+=5; } },
     ] },
 
   { sp:"The fund", year:"{PLACE} · 2015 · the stadium era", seasons:5,
     pr:"A sovereign wealth fund will buy you and make you champions. The old ground, and the neighbourhood around it, would go.",
     ch:[
-      { t:"Sell. Win at last.", note:"Money and a star striker. The community doesn't forgive.", tags:['outsider','ownership'],
+      { t:"Sell. Win at last.", note:"Money and stars. The community doesn't forgive.", tags:['outsider','ownership','regime','move'],
         run:()=>{ squad.push({name:"Okafor",age:25,rating:18,foreign:true}); squad.push({name:"Diallo",age:23,rating:17,foreign:true}); squad.push({name:"Ferreira",age:27,rating:16,foreign:true}); meters.money+=30; meters.soul-=15; meters.fans-=35; charterBroken=true; } },
-      { t:"Refuse. Stay poor, stay home, stay ours.", note:"Soul and fans hold. The dice stay long.", tags:['outsider-hold','ownership-hold'],
+      { t:"Refuse. Stay poor, stay home, stay ours.", note:"Soul and fans hold. The dice stay long.", tags:['outsider-hold','ownership-hold','regime-hold','stay-hold'],
         run:()=>{ meters.soul+=15; meters.fans+=15; meters.money-=15; } },
     ] },
 
@@ -687,9 +784,16 @@ function showScene(){
   document.getElementById("rollOut").innerHTML="";
   document.getElementById("nx").style.display="none";
   const c=document.getElementById("ch"); c.innerHTML="";
-  s.ch.forEach((o,i)=>{ const b=document.createElement("button"); b.className="c";
-    b.innerHTML=`${o.t}<small>${o.note||""}</small>`; b.onclick=()=>pick(i); c.appendChild(b); });
+  visibleChoices(s).forEach((o)=>{ const b=document.createElement("button"); b.className="c";
+    if(o.conflict) b.style.borderColor="var(--gold)";
+    b.innerHTML=`${o.t}<small>${o.note||""}</small>`; b.onclick=()=>pick(o._idx); c.appendChild(b); });
   drawMeters(); drawSquad();
+}
+
+// A choice shows only if it has no cond, or its cond is true for this charter.
+// Conflict choices (cond present) appear when two sworn rules collide.
+function visibleChoices(s){
+  return s.ch.map((o,i)=>({...o,_idx:i})).filter(o=>!o.cond || o.cond());
 }
 
 function pick(i){
@@ -718,17 +822,22 @@ document.getElementById("nx").onclick=function(){
   seasonInEra++;
   seasonsLeft--;
   const r=playSeason();
+  const rew=seasonRewards(r);
+  if(r.won) trophies++;
+  // Apply the season's money/fan feedback, clamped.
+  meters.money=clamp(meters.money+rew.money);
+  meters.fans =clamp(meters.fans +rew.fans);
   const totalForEra=scenes[current].seasons||5;
   const out=document.getElementById("rollOut");
   const line=document.createElement("div");
-  if(r.won){
-    trophies++;
-    line.innerHTML=`<span class="win">Season ${seasonInEra} of ${totalForEra} — Champions (${Math.round(r.chance*100)}% odds)</span>`;
-  } else {
-    line.innerHTML=`<span class="lose">Season ${seasonInEra} of ${totalForEra} — No silverware (${Math.round(r.chance*100)}% odds)</span>`;
-  }
+  // Build a short "+6 fans" style tag from whatever changed.
+  const bits=[];
+  if(rew.fans) bits.push(`${rew.fans>0?'+':''}${rew.fans} fans`);
+  if(rew.money) bits.push(`${rew.money>0?'+':''}${rew.money} money`);
+  const tag = bits.length?` · ${bits.join(', ')}`:'';
+  line.innerHTML=`<span class="${rew.cls}">Season ${seasonInEra} of ${totalForEra} — ${rew.label} (${Math.round(r.chance*100)}% odds)${tag}</span>`;
   out.appendChild(line);
-  drawSquad();
+  drawMeters(); drawSquad();
   if(seasonsLeft>0){
     this.textContent=`Play season ${seasonInEra+1} of ${totalForEra} →`;
   } else {
@@ -742,7 +851,7 @@ function showEnding(){
   document.getElementById("squadBox").style.display="none";
   document.getElementById("meters").style.display="none";
   document.getElementById("ending").style.display="block";
-  const r=REGIONS[founding.region], s=STORIES[founding.story], ru=RULES[founding.rule];
+  const r=REGIONS[founding.region], s=STORIES[founding.story];
   let t,b;
   const dead=meters.soul<=0?"soul":meters.money<=0?"money":meters.fans<=0?"fans":null;
   if(dead){
@@ -756,14 +865,14 @@ function showEnding(){
     b=`Only ${trophies} title${trophies===1?'':'s'} in a hundred years. But this ${s.name} is still what the founders made it. The rule held.`;
   } else if(trophies>=3){
     t="You won everything. You are no longer yourselves.";
-    b=`${trophies} titles bought with compromises. The ${ru.name} rule is a framed relic. The ${r.name} you were belongs to another century.`;
+    b=`${trophies} titles bought with compromises. The charter is a framed relic. The ${r.name} you were belongs to another century.`;
   } else {
     t="You broke the charter and won little anyway.";
     b=`You spent the soul of a ${s.name} chasing the dice, and the dice didn't care. ${trophies} title${trophies===1?'':'s'}, and nothing left that made you different.`;
   }
   document.getElementById("et").textContent=t;
   document.getElementById("eb").textContent=b;
-  document.getElementById("ec").textContent=`${r.place} · ${s.name} · Charter: ${ru.name}`;
+  document.getElementById("ec").textContent=`${r.place} · ${s.name} · Charter: ${ruleNames()}`;
 }
 
 document.getElementById("rp").onclick=()=>location.reload();
