@@ -1,0 +1,481 @@
+/* =========================================================================
+   MORE THAN A CLUB — pixel-art retro skin
+   A Championship-Manager-on-a-CRT look: phosphor palette, scanlines, chunky
+   beveled chrome, pixel fonts. Mobile-first, single column, capped width.
+   ========================================================================= */
+
+:root {
+  /* Phosphor + terrace palette. Dark green-black CRT base, amber + green
+     phosphor accents, blood-red for danger, gold for glory. */
+  --bg: #0b0f0c;
+  --bg2: #11160f;
+  --panel: #16201a;
+  --panel-hi: #1d2b22;
+  --ink: #e8f0d8;
+  --muted: #7e9173;
+  --line: #2c3a2c;
+  --green: #6fd06a;     /* soul / good */
+  --amber: #e0a93a;     /* money / gold */
+  --red: #d9472e;       /* fans-loss / danger */
+  --blue: #59a6d6;
+  --gold: #f2c14e;
+
+  --money: #e0a93a;
+  --soul: #6fd06a;
+  --fans: #d96a8e;
+
+  --shadow: 0 0 0 2px #000, 4px 4px 0 0 rgba(0,0,0,0.6);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-body), "VT323", monospace;
+  line-height: 1.5;
+  display: flex;
+  justify-content: center;
+  /* A faint radial glow like a CRT bulb behind the screen. */
+  background:
+    radial-gradient(120% 90% at 50% 0%, #0e140d 0%, #060806 60%, #000 100%);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Pixel font helper for chrome, headings, numbers. */
+.pix {
+  font-family: var(--font-pixel), "Press Start 2P", monospace;
+  letter-spacing: 0.5px;
+  line-height: 1.6;
+}
+
+#screen {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  min-height: 100vh;
+  padding: 14px 14px 32px;
+  display: flex;
+  flex-direction: column;
+  background:
+    linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+  border-left: 2px solid var(--line);
+  border-right: 2px solid var(--line);
+  overflow: hidden;
+}
+
+/* Scanline + vignette overlay sitting above everything, click-through. */
+#screen::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  max-width: 440px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 50;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0,0,0,0) 0px,
+      rgba(0,0,0,0) 2px,
+      rgba(0,0,0,0.18) 3px,
+      rgba(0,0,0,0.18) 4px
+    ),
+    radial-gradient(120% 100% at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%);
+  mix-blend-mode: multiply;
+}
+
+/* ---------- Header ---------- */
+header.hud {
+  text-align: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px dashed var(--line);
+}
+header.hud h1 {
+  font-size: 13px;
+  margin: 0;
+  color: var(--gold);
+  text-shadow: 2px 2px 0 #000;
+}
+header.hud .year {
+  color: var(--green);
+  font-size: 10px;
+  margin-top: 6px;
+  font-family: var(--font-pixel), monospace;
+  text-shadow: 1px 1px 0 #000;
+}
+
+/* ---------- Meters ---------- */
+.meters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.meter .row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--muted);
+  margin-bottom: 3px;
+  font-family: var(--font-pixel), monospace;
+}
+.meter .row .val {
+  color: var(--ink);
+}
+.bar {
+  height: 12px;
+  background: #0a0d09;
+  border: 2px solid var(--line);
+  box-shadow: inset 2px 2px 0 rgba(0,0,0,0.5);
+  overflow: hidden;
+  position: relative;
+}
+/* Chunky segmented fill, like an old LCD bar. */
+.bar > span {
+  display: block;
+  height: 100%;
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      currentColor 0px,
+      currentColor 7px,
+      rgba(0,0,0,0.35) 7px,
+      rgba(0,0,0,0.35) 9px
+    );
+  transition: width 0.5s steps(12);
+}
+.meter.money > .bar > span { color: var(--money); }
+.meter.soul  > .bar > span { color: var(--soul); }
+.meter.fans  > .bar > span { color: var(--fans); }
+
+/* ---------- Panels ---------- */
+.panel {
+  background: var(--panel);
+  border: 2px solid var(--line);
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  image-rendering: pixelated;
+}
+.panel h3 {
+  margin: 0 0 8px;
+  font-size: 9px;
+  color: var(--amber);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: var(--font-pixel), monospace;
+  font-weight: normal;
+}
+
+/* ---------- Squad ---------- */
+.player {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  padding: 3px 0;
+  border-bottom: 1px dotted rgba(124,145,115,0.18);
+}
+.player:last-child { border-bottom: none; }
+.player .tag { color: var(--muted); font-size: 11px; }
+.player.foreign .name { color: var(--red); }
+.player .rate {
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  color: var(--gold);
+}
+.bench { font-size: 12px; color: var(--muted); padding: 4px 0 0; }
+.strength {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 2px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-family: var(--font-pixel), monospace;
+}
+.strength b { color: var(--gold); }
+
+/* Strength-vs-league marker bar */
+.strbar {
+  position: relative;
+  margin-top: 8px;
+  padding-bottom: 18px;
+}
+.strbar .track {
+  height: 10px;
+  background: #0a0d09;
+  border: 2px solid var(--line);
+  overflow: hidden;
+}
+.strbar .track > span {
+  display: block;
+  height: 100%;
+  transition: width 0.5s steps(10);
+}
+.strbar .mark {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 14px;
+  background: var(--ink);
+  opacity: 0.7;
+  transform: translateX(-50%);
+}
+.strbar .marklabel {
+  position: absolute;
+  top: 15px;
+  transform: translateX(-50%);
+  font-size: 8px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-family: var(--font-pixel), monospace;
+}
+
+/* ---------- Reach strip ---------- */
+.reach .dots { display: flex; gap: 5px; align-items: center; }
+.reach .dot {
+  flex: 1;
+  height: 12px;
+  background: #0a0d09;
+  border: 2px solid var(--line);
+}
+.reach .dot.lit {
+  background: var(--gold);
+  box-shadow: 0 0 6px rgba(242,193,78,0.6);
+}
+.reach .pct {
+  font-size: 9px;
+  color: var(--muted);
+  margin-top: 6px;
+  text-align: right;
+  font-family: var(--font-pixel), monospace;
+}
+
+/* ---------- Tech timeline ---------- */
+.tech .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tech .chip {
+  font-family: var(--font-pixel), monospace;
+  font-size: 8px;
+  padding: 5px 6px;
+  border: 2px solid var(--line);
+  color: var(--muted);
+  background: #0a0d09;
+}
+.tech .chip.on {
+  color: var(--blue);
+  border-color: var(--blue);
+  text-shadow: 0 0 4px rgba(89,166,214,0.5);
+}
+
+/* ---------- Scene card ---------- */
+.card {
+  background: var(--panel);
+  border: 2px solid var(--line);
+  box-shadow: var(--shadow);
+  padding: 16px 14px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.sp {
+  color: var(--amber);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 12px;
+  font-family: var(--font-pixel), monospace;
+}
+.pr {
+  font-size: 16px;
+  flex: 1;
+  color: var(--ink);
+}
+.ch {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 16px;
+}
+
+/* Chunky beveled retro buttons. */
+button.c {
+  width: 100%;
+  min-height: 50px;
+  background: var(--panel-hi);
+  color: var(--ink);
+  border: 2px solid var(--green);
+  box-shadow: 3px 3px 0 0 #000;
+  padding: 11px 13px;
+  font-family: inherit;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.05s steps(1), box-shadow 0.05s steps(1), background 0.1s;
+}
+button.c:hover { background: #233226; }
+button.c:active {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 0 #000;
+  background: #2a3b2d;
+}
+button.c small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+button.c.conflict { border-color: var(--gold); }
+button.c.seal { border-color: var(--gold); text-align: center; }
+button.c.chosen { border-color: var(--gold); background: #2a3b2d; }
+button.c:disabled { opacity: 0.4; cursor: default; }
+
+.fo {
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--muted);
+  font-style: italic;
+  min-height: 18px;
+}
+
+.rollOut { margin-top: 10px; font-size: 13px; font-family: var(--font-pixel), monospace; }
+.rollOut > div { padding: 4px 0; font-size: 11px; }
+.rollOut .win { color: var(--green); }
+.rollOut .lose { color: var(--muted); }
+
+button.nx {
+  margin-top: 14px;
+  width: 100%;
+  min-height: 48px;
+  background: var(--amber);
+  color: #1a1206;
+  border: 2px solid var(--gold);
+  box-shadow: 3px 3px 0 0 #000;
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+button.nx:active { transform: translate(3px, 3px); box-shadow: 0 0 0 0 #000; }
+
+/* ---------- Intro / founding chrome ---------- */
+.intro-title {
+  text-align: center;
+  margin: 28px 0 8px;
+}
+.intro-title h1 {
+  font-family: var(--font-pixel), monospace;
+  font-size: 18px;
+  color: var(--gold);
+  text-shadow: 3px 3px 0 #000, 0 0 18px rgba(242,193,78,0.35);
+  line-height: 1.8;
+  margin: 0;
+}
+.intro-sub {
+  text-align: center;
+  color: var(--green);
+  font-size: 13px;
+  margin: 8px 16px 18px;
+  font-style: italic;
+}
+.intro-body { font-size: 15px; color: var(--ink); margin: 0 4px; }
+
+/* Blinking pixel cursor for that boot-screen feel. */
+.blink { animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* Era-transition flash */
+.flash {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  color: var(--gold);
+  font-family: var(--font-pixel), monospace;
+  font-size: 14px;
+  text-align: center;
+  padding: 0 30px;
+  animation: flashfade 1.4s ease forwards;
+}
+@keyframes flashfade {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; pointer-events: none; }
+}
+
+/* ---------- Fan mood meter ---------- */
+.mood .moodstrip { display: flex; gap: 4px; }
+.mood .moodseg {
+  flex: 1;
+  height: 14px;
+  border: 2px solid var(--line);
+  transition: background 0.3s;
+}
+.mood .moodseg.on { box-shadow: 0 0 8px currentColor; }
+
+/* ---------- Manager panel ---------- */
+.mgr .mgrname { font-size: 15px; color: var(--ink); }
+.mgr .mgrblurb { font-size: 13px; color: var(--muted); font-style: italic; margin-top: 3px; }
+
+/* ---------- News ticker ---------- */
+.ticker .tickline {
+  font-size: 13px;
+  color: var(--green);
+  padding: 2px 0;
+  border-bottom: 1px dotted rgba(124, 145, 115, 0.15);
+}
+.ticker .tickline:last-child { border-bottom: none; color: var(--gold); }
+
+/* ---------- Match moment ---------- */
+.matchcard { justify-content: center; }
+.matchbar { cursor: pointer; padding: 18px 0; }
+.matchtrack {
+  position: relative;
+  height: 26px;
+  background: #0a0d09;
+  border: 2px solid var(--line);
+  overflow: hidden;
+}
+.matchsweet {
+  position: absolute;
+  left: 42%;
+  width: 16%;
+  top: 0;
+  bottom: 0;
+  background: rgba(111, 208, 106, 0.25);
+  border-left: 2px solid var(--green);
+  border-right: 2px solid var(--green);
+}
+.matchmarker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background: var(--gold);
+  box-shadow: 0 0 8px rgba(242, 193, 78, 0.8);
+  transform: translateX(-50%);
+}
+.matchprompt {
+  text-align: center;
+  font-size: 9px;
+  color: var(--amber);
+  margin: 8px 0 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::after { animation: none !important; transition: none !important; }
+}

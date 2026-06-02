@@ -1,0 +1,8 @@
+node_modules/
+.next/
+out/
+play_new/
+tsconfig.tsbuildinfo
+.DS_Store
+*.log
+play/
