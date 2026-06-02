@@ -476,6 +476,59 @@ button.nx:active { transform: translate(3px, 3px); box-shadow: 0 0 0 0 #000; }
   margin: 8px 0 4px;
 }
 
+/* ---------- League table ---------- */
+.league .leaguerow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  padding: 3px 0;
+  border-bottom: 1px dotted rgba(124, 145, 115, 0.15);
+}
+.league .leaguerow:last-child { border-bottom: none; }
+.league .pos {
+  font-family: var(--font-pixel), monospace;
+  font-size: 9px;
+  color: var(--muted);
+  width: 16px;
+}
+.league .lname { flex: 1; color: var(--muted); }
+.league .lstr { font-family: var(--font-pixel), monospace; font-size: 10px; color: var(--muted); }
+.league .leaguerow.you .lname { color: var(--gold); }
+.league .leaguerow.you .pos { color: var(--gold); }
+.league .leaguerow.you .lstr { color: var(--gold); }
+
+/* ---------- Achievements ---------- */
+.ach { border-color: var(--gold); }
+.ach .achrow { padding: 4px 0; }
+.ach .achname { display: block; font-size: 14px; color: var(--gold); }
+.ach .achdesc { display: block; font-size: 12px; color: var(--muted); }
+
+.bootach {
+  text-align: center;
+  font-size: 9px;
+  color: var(--amber);
+  margin-top: 16px;
+}
+
+/* ---------- Run history ---------- */
+.history .histrow {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  padding: 3px 0;
+  border-bottom: 1px dotted rgba(124, 145, 115, 0.12);
+}
+.history .histrow:last-child { border-bottom: none; }
+.history .histyear {
+  font-family: var(--font-pixel), monospace;
+  font-size: 8px;
+  color: var(--amber);
+  min-width: 60px;
+  padding-top: 2px;
+}
+.history .histtext { flex: 1; color: var(--ink); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::after { animation: none !important; transition: none !important; }
 }

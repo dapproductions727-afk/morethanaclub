@@ -7,6 +7,9 @@ import { STORIES, RULES } from "@/lib/charter";
 import { scenes, bindSceneHooks } from "@/lib/scenes";
 import { MANAGERS, managerByKey } from "@/lib/managers";
 import { rollEvent, type EventCtx } from "@/lib/events";
+import { leagueTable, playerPosition, RIVALS } from "@/lib/rivals";
+import { ACHIEVEMENTS, recordRun, getUnlockedAchievements, type RunSummary } from "@/lib/progress";
+import { mulberry32, seedFromString, todaySeedString, seededFounding, seededScore } from "@/lib/seed";
 import {
   MAX_RULES,
   clamp,
@@ -24,7 +27,7 @@ import {
   deriveStadium,
 } from "@/lib/engine";
 import Stadium from "@/components/Stadium";
-import { MetersBar, SquadPanel, ReachStrip, TechTimeline, MoodMeter, ManagerPanel, NewsTicker } from "@/components/Hud";
+import { MetersBar, SquadPanel, ReachStrip, TechTimeline, MoodMeter, ManagerPanel, NewsTicker, LeagueTable } from "@/components/Hud";
 
 type Phase = "boot" | "founding" | "summary" | "manager" | "scene" | "seasons" | "match" | "ending";
 
@@ -86,6 +89,15 @@ export default function Game() {
   // Match-moment state.
   const [pendingMatch, setPendingMatch] = useState<BigMatch | null>(null);
 
+  // Replayability: run history, league position, seeded mode.
+  const [runLog, setRunLog] = useState<{ year: string; text: string }[]>([]);
+  const [bestPosition, setBestPosition] = useState(4);
+  const [seeded, setSeeded] = useState(false);
+  const seedRng = useRef<() => number>(Math.random);
+  const [ending, setEnding] = useState<ReturnType<typeof computeEnding> | null>(null);
+  const [earned, setEarned] = useState<{ newlyEarned: string[]; all: string[] } | null>(null);
+  const clubName = founding.region ? REGIONS[founding.region].place + " club" : "Your club";
+
   const flagRef = useRef({ defiedBan: false });
   useEffect(() => {
     flagRef.current.defiedBan = defiedBan;
@@ -112,6 +124,20 @@ export default function Game() {
     ? clamp(Math.round(meters.fans * 0.2))
     : clamp(Math.round(meters.fans * 0.6 + meters.soul * 0.4));
   const stadium = deriveStadium({ era: current, rebuilt, newStand, movedOut, corporate, lights: lightsOn });
+  const leaguePos = playerPosition(strength(squad), current);
+  const table = leagueTable(clubName, strength(squad), current);
+
+  // Track best league finish reached across the run.
+  useEffect(() => {
+    if ((phase === "scene" || phase === "seasons") && leaguePos < bestPosition) {
+      setBestPosition(leaguePos);
+    }
+  }, [phase, leaguePos, bestPosition]);
+
+  function logEvent(text: string) {
+    const y = scenes[current]?.year.replace("{PLACE}", place) || "";
+    setRunLog((l) => [...l, { year: y.split("·").pop()?.trim() || y, text }]);
+  }
 
   // =====================================================================
   // FOUNDING
@@ -142,6 +168,36 @@ export default function Game() {
   function sealCharter() {
     if (founding.rules.length === 0) return;
     advanceFounding();
+  }
+
+  // Start a seeded daily challenge: fixed founding, deterministic century.
+  function startSeeded() {
+    const seedStr = todaySeedString();
+    const seed = seedFromString(seedStr);
+    seedRng.current = mulberry32(seed);
+    setSeeded(true);
+    const f = seededFounding(seed);
+    setFounding(f);
+    // Jump straight past the founding screens with the seeded club.
+    setTimeout(() => {
+      const r = REGIONS[f.region as string];
+      const s = STORIES[f.story as string];
+      const rb = { money: 0, soul: 0, fans: 0 };
+      f.rules.forEach((k) => {
+        const b = RULES[k].bonus || {};
+        rb.money += b.money || 0;
+        rb.soul += b.soul || 0;
+        rb.fans += b.fans || 0;
+      });
+      setMeters({
+        money: clamp(r.start.money + (s.bonus.money || 0) + rb.money),
+        soul: clamp(r.start.soul + (s.bonus.soul || 0) + rb.soul),
+        fans: clamp(r.start.fans + (s.bonus.fans || 0) + rb.fans),
+      });
+      setSquad(r.squad.map((p) => ({ ...p })));
+      nameCounter.current.i = 0;
+      setPhase("manager");
+    }, 0);
   }
 
   function beginCentury() {
@@ -246,6 +302,8 @@ export default function Game() {
 
     const note = typeof opt.note === "function" ? opt.note() : opt.note || "";
     setSceneNote(note);
+    // Record this decision in the century's run history.
+    logEvent(`${scene.sp}: ${opt.t}`);
 
     setSeasonsLeft(scene.seasons || 5);
     setSeasonInEra(0);
@@ -276,10 +334,34 @@ export default function Game() {
     }
     setCurrent(next);
     if (next >= scenes.length || withMgr.soul <= 0 || withMgr.money <= 0 || withMgr.fans <= 0) {
-      setPhase("ending");
+      finalizeRun(withMgr);
     } else {
       setPhase("scene");
     }
+  }
+
+  // Compute the ending copy, record achievements, then show the ending screen.
+  function finalizeRun(finalMeters: Meters) {
+    const end = computeEnding(finalMeters, founding, trophies, charterBroken);
+    const survived = finalMeters.soul > 0 && finalMeters.money > 0 && finalMeters.fans > 0;
+    const score = seeded
+      ? seededScore({ trophies, charterBroken, survived, soul: finalMeters.soul, fans: finalMeters.fans, money: finalMeters.money })
+      : 0;
+    const summary: RunSummary = {
+      founding,
+      trophies,
+      charterBroken,
+      meters: finalMeters,
+      survived,
+      movedOut,
+      corporate,
+      bestPosition,
+      seeded,
+      score,
+    };
+    setEnding(end);
+    setEarned(recordRun(summary));
+    setPhase("ending");
   }
 
   function playOneSeason() {
@@ -294,8 +376,9 @@ export default function Game() {
       return;
     }
 
-    const r = playSeason(squad, manager?.oddsMod || 1);
+    const r = playSeason(squad, manager?.oddsMod || 1, seedRng.current);
     const rew = seasonRewards(r, reach);
+    if (r.won) logEvent("Champions of the league.");
 
     // Work on local copies so the news event and end-of-era see fresh values.
     let nextMeters: Meters = {
@@ -312,7 +395,7 @@ export default function Game() {
     setForm((f) => nextForm(f, formDelta(r)));
 
     // Roll a small news event most weeks.
-    const ev = rollEvent({ era: current, meters: nextMeters, trophies, reach: nextReach }, Math.random);
+    const ev = rollEvent({ era: current, meters: nextMeters, trophies, reach: nextReach }, seedRng.current);
     let newsLine: string | null = null;
     if (ev) {
       const ectx: EventCtx = {
@@ -352,8 +435,8 @@ export default function Game() {
     const m = pendingMatch;
     if (!m) return;
     // Base on squad odds, lifted by tap quality.
-    const base = playSeason(squad, manager?.oddsMod || 1).chance;
-    const success = Math.random() < Math.min(0.92, base + quality * 0.55);
+    const base = playSeason(squad, manager?.oddsMod || 1, seedRng.current).chance;
+    const success = seedRng.current() < Math.min(0.92, base + quality * 0.55);
     const rew = success ? m.rewardWin : m.rewardLose;
 
     let nextMeters: Meters = {
@@ -379,6 +462,7 @@ export default function Game() {
       },
     ]);
     setNews((n) => [...n, `${m.kind.toUpperCase()}: ${success ? "Glory. The city will remember this." : "Heartbreak at the death."}`]);
+    logEvent(`${m.kind}: ${success ? "won" : "lost"}.`);
     setSeasonInEra((x) => x + 1);
     setSeasonsLeft(0);
     setPendingMatch(null);
@@ -388,8 +472,9 @@ export default function Game() {
 
   useEffect(() => {
     if (phase === "scene" && (meters.soul <= 0 || meters.money <= 0 || meters.fans <= 0)) {
-      setPhase("ending");
+      finalizeRun(meters);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, meters]);
 
   function restart() {
@@ -426,6 +511,7 @@ export default function Game() {
       <MetersBar meters={meters} />
       <MoodMeter mood={mood} form={form} />
       <SquadPanel squad={squad} trophies={trophies} />
+      <LeagueTable rows={table} />
       <ManagerPanel manager={manager} />
       <NewsTicker items={news} />
       <ReachStrip reach={reach} />
@@ -437,7 +523,7 @@ export default function Game() {
     <div id="screen">
       {flashText && <div className="flash pix">{flashText}</div>}
 
-      {phase === "boot" && <BootScreen onStart={() => setPhase("founding")} />}
+      {phase === "boot" && <BootScreen onStart={() => setPhase("founding")} onDaily={startSeeded} />}
 
       {phase === "founding" && (
         <FoundingScreen step={foundingStep} founding={founding} onPick={pickFounding} onSeal={sealCharter} />
@@ -509,13 +595,18 @@ export default function Game() {
         </>
       )}
 
-      {phase === "ending" && (
+      {phase === "ending" && ending && (
         <EndingScreen
-          ending={computeEnding(meters, founding, trophies, charterBroken)}
+          ending={ending}
           stadium={stadium}
           fans={meters.fans}
           neighborhood={neighborhoodVal}
           mood={mood}
+          runLog={runLog}
+          earned={earned}
+          seeded={seeded}
+          score={seeded ? seededScore({ trophies, charterBroken, survived: meters.soul > 0 && meters.money > 0 && meters.fans > 0, soul: meters.soul, fans: meters.fans, money: meters.money }) : 0}
+          bestPosition={bestPosition}
           onRestart={restart}
         />
       )}
@@ -527,7 +618,8 @@ export default function Game() {
 // SUB-SCREENS
 // =====================================================================
 
-function BootScreen({ onStart }: { onStart: () => void }) {
+function BootScreen({ onStart, onDaily }: { onStart: () => void; onDaily: () => void }) {
+  const unlocked = getUnlockedAchievements();
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
       <div className="intro-title">
@@ -540,22 +632,27 @@ function BootScreen({ onStart }: { onStart: () => void }) {
         </h1>
       </div>
       <div className="intro-sub">A century in one club</div>
-      <div className="intro-body" style={{ margin: "0 8px 22px" }}>
+      <div className="intro-body" style={{ margin: "0 8px 18px" }}>
         <p>You run a sporting institution for 100 years, and the world keeps changing the rules underneath you.</p>
         <p>
-          You don&apos;t pick a starting eleven. You run the institution that hires whoever does. A handful of heavy
-          decisions across a century, and you live with each one for the rest of the game.
-        </p>
-        <p>
-          A choice in 1925 still bites in 1995. That delay is the whole pleasure. Money, soul, fans. None can hit zero.
-          They fight each other.
+          A handful of heavy decisions across a century, and you live with each one for the rest of the game. A choice
+          in 1925 still bites in 1995. Money, soul, fans. None can hit zero.
         </p>
       </div>
       <div className="ch">
         <button className="c seal" onClick={onStart}>
           Found a club <span className="blink">▌</span>
         </button>
+        <button className="c" onClick={onDaily}>
+          Daily challenge
+          <small>The same century for everyone today. One run. Beat your score.</small>
+        </button>
       </div>
+      {unlocked.length > 0 && (
+        <div className="bootach pix">
+          {unlocked.length} / {ACHIEVEMENTS.length} achievements earned
+        </div>
+      )}
     </div>
   );
 }
@@ -733,6 +830,11 @@ function EndingScreen({
   fans,
   neighborhood,
   mood,
+  runLog,
+  earned,
+  seeded,
+  score,
+  bestPosition,
   onRestart,
 }: {
   ending: { title: string; body: string; caption: string };
@@ -740,10 +842,17 @@ function EndingScreen({
   fans: number;
   neighborhood: number;
   mood: Mood;
+  runLog: { year: string; text: string }[];
+  earned: { newlyEarned: string[]; all: string[] } | null;
+  seeded: boolean;
+  score: number;
+  bestPosition: number;
   onRestart: () => void;
 }) {
+  const newKeys = new Set(earned?.newlyEarned || []);
+  const earnedThisRun = ACHIEVEMENTS.filter((a) => (earned?.all || []).includes(a.key) && newKeys.has(a.key));
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
       <header className="hud">
         <h1 className="pix">THE CENTURY ENDS</h1>
         <div className="year">2024 · A hundred years on</div>
@@ -760,13 +869,44 @@ function EndingScreen({
       />
       <div className="card">
         <div className="sp">After a hundred years</div>
-        <div className="pr">
+        <div className="pr" style={{ flex: "none" }}>
           <p className="pix" style={{ fontSize: 12, color: "var(--gold)", lineHeight: 1.8 }}>
             {ending.title}
           </p>
           <p>{ending.body}</p>
           <p style={{ color: "var(--muted)", fontSize: 13 }}>{ending.caption}</p>
+          <p style={{ color: "var(--green)", fontSize: 13 }}>
+            Best league finish: {bestPosition === 1 ? "1st" : bestPosition === 2 ? "2nd" : bestPosition === 3 ? "3rd" : "4th"}
+          </p>
+          {seeded && (
+            <p className="pix" style={{ fontSize: 11, color: "var(--amber)" }}>
+              Daily score: {score}
+            </p>
+          )}
         </div>
+
+        {earnedThisRun.length > 0 && (
+          <div className="panel ach">
+            <h3>Achievement unlocked</h3>
+            {earnedThisRun.map((a) => (
+              <div className="achrow" key={a.key}>
+                <span className="achname">★ {a.name}</span>
+                <span className="achdesc">{a.desc}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="panel history">
+          <h3>The century, decision by decision</h3>
+          {runLog.map((l, i) => (
+            <div className="histrow" key={i}>
+              <span className="histyear">{l.year}</span>
+              <span className="histtext">{l.text}</span>
+            </div>
+          ))}
+        </div>
+
         <div className="ch">
           <button className="c seal" onClick={onRestart}>
             Found another club →

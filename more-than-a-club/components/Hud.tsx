@@ -35,6 +35,25 @@ export function ManagerPanel({ manager }: { manager: Manager | null }) {
   );
 }
 
+export function LeagueTable({
+  rows,
+}: {
+  rows: { name: string; strength: number; isPlayer: boolean }[];
+}) {
+  return (
+    <div className="panel league">
+      <h3>The league</h3>
+      {rows.map((r, i) => (
+        <div className={`leaguerow ${r.isPlayer ? "you" : ""}`} key={r.name}>
+          <span className="pos">{i + 1}</span>
+          <span className="lname">{r.name}</span>
+          <span className="lstr">{r.strength}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function NewsTicker({ items }: { items: string[] }) {
   if (!items.length) return null;
   return (

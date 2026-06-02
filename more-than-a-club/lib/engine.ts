@@ -40,11 +40,12 @@ export function titleChance(s: number): number {
   return Math.min(0.5, Math.max(0.03, (s - 160) / 280));
 }
 
-// The manager's tactical style nudges the odds.
-export function playSeason(squad: Player[], oddsMod = 1): SeasonResult {
+// The manager's tactical style nudges the odds. An optional rng lets seeded
+// mode produce a deterministic century; defaults to Math.random.
+export function playSeason(squad: Player[], oddsMod = 1, rng: () => number = Math.random): SeasonResult {
   const s = strength(squad);
   const chance = Math.min(0.6, titleChance(s) * oddsMod);
-  const roll = Math.random();
+  const roll = rng();
   const won = roll < chance;
   const nearMiss = !won && roll < chance + 0.18;
   return { won, nearMiss, chance, strength: s };

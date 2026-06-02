@@ -46,6 +46,13 @@ npm run build
 - A Civ-style technology timeline (radio → floodlights → television → data → surveillance).
 - Stronger coupling between results and fans: winning brings real crowds, a barren decade empties the terraces.
 
+## Replayability
+
+- A run-history ending: the whole century laid out decision by decision, with your best league finish.
+- Rival clubs (the sellout, the purist, the steady mid-tabler) that rise and fall beside you in a live league table.
+- Achievements for rare runs (win with the charter intact, survive the three-rule purist run, finish top), saved across sessions.
+- A daily challenge: a seeded "same century for everyone today" mode with a score to beat. Same seed = identical century.
+
 ## Play it without Terminal
 
 Double-click **Play More Than a Club.command** in this folder. It starts a tiny local server (using Python, which ships with macOS) and opens the game in your browser. Keep that window open while you play. First time, macOS may warn it's from an unidentified developer — right-click the file, choose Open, then Open again. You only do that once.
