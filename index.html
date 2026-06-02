@@ -38,6 +38,13 @@
     display:flex; justify-content:space-between; font-size:13px; }
   .strength b { color:var(--gold); }
 
+  .reachStrip { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin-bottom:12px; }
+  .reachStrip h3 { margin:0 0 6px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; font-weight:normal; }
+  .reachStrip .dots { display:flex; gap:6px; align-items:center; }
+  .reachStrip .dot { flex:1; height:8px; border-radius:4px; background:var(--line); transition:background .5s; }
+  .reachStrip .dot.lit { background:var(--gold); }
+  .reachStrip .reachpct { font-size:11px; color:var(--muted); margin-top:5px; text-align:right; }
+
   .card { background:var(--panel); border:1px solid var(--line); border-radius:14px;
     padding:18px 16px; flex:1; display:flex; flex-direction:column; }
   .sp { color:var(--accent); font-size:12px; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; }
@@ -130,6 +137,7 @@
   <header><h1>More Than a Club</h1><div class="year" id="year">Bilbao · 1900</div></header>
   <div class="meters" id="meters"></div>
   <div class="squad" id="squadBox"></div>
+  <div class="reachStrip" id="reachStrip"></div>
   <div class="card" id="card">
     <div class="sp" id="sp"></div>
     <div class="pr" id="pr"></div>
@@ -453,9 +461,9 @@ const meterLabels = { money:"Money", soul:"Soul", fans:"Fans" };
 let squad = [];
 let trophies = 0;
 let charterBroken = false;
-let current = 0; let charterBroken = false;
 let defiedBan = false;   // defied the 1921 FA ban on women's football
-let reach = 0;           // global reach, 0-100, for the map
+let reach = 0;           // global reach 0-100, drives the reach strip
+let current = 0;
 let seasonsLeft = 0;
 let seasonInEra = 0;
 let founding = { region:null, story:null, rules:[] };
@@ -654,6 +662,15 @@ const scenes = [
         run:()=>{ meters.money+=10; meters.soul-=10; meters.fans-=25; } },
     ] },
 
+  { sp:"The women's side", year:"{PLACE} · 1921", seasons:3,
+    pr:"Your women's team drew a bigger crowd than the men last Boxing Day. Now the FA has banned women from Football League grounds, calling the game 'quite unsuitable for females.' Obey, or defy them?",
+    ch:[
+      { t:"Defy the ban. The crowds chose them.", note:"You lose the ground and the FA's favour. The town never forgets you stood with the women.", tags:['regime'],
+        run:()=>{ meters.money-=20; meters.soul+=20; meters.fans+=20; defiedBan=true; } },
+      { t:"Obey. Shut the women's side down.", note:"The money holds. A thread of the club quietly dies.", tags:[],
+        run:()=>{ meters.money+=5; meters.soul-=15; meters.fans-=10; } },
+    ] },
+
   { sp:"The board", year:"{PLACE} · 1930s", seasons:6,
     pr:"Your senior men are ageing. Pour money into the academy now, or save it?",
     ch:[
@@ -662,14 +679,7 @@ const scenes = [
       { t:"Hire a famous manager from abroad instead.", note:"Results now. The club's own people are passed over.", tags:['glamour','commercial'],
         run:()=>{ meters.money-=10; meters.soul-=8; squad.forEach(p=>{ if(p.age<30)p.rating+=1; }); } },
     ] },
-{ sp:"The women's side", year:"{PLACE} · 1921", seasons:3,
-    pr:"Your women's team drew a bigger crowd than the men last Boxing Day. Now the FA has banned women from Football League grounds, calling the game 'quite unsuitable for females.' Obey, or defy them?",
-    ch:[
-      { t:"Defy the ban. The crowds chose them.", note:"You lose the ground and the FA's favour. The town never forgets you stood with the women.", tags:['regime'],
-        run:()=>{ meters.money-=20; meters.soul+=20; meters.fans+=20; defiedBan=true; } },
-      { t:"Obey. Shut the women's side down.", note:"The money holds. A thread of the club quietly dies.", tags:[],
-        run:()=>{ meters.money+=5; meters.soul-=15; meters.fans-=10; } },
-    ] },
+
   { sp:"The broadcaster", year:"{PLACE} · 1950", seasons:6,
     pr:"The national broadcaster wants to carry your home matches live. Your board says the terraces will empty. The broadcaster says the whole country will know your name.",
     ch:[
@@ -745,7 +755,8 @@ const scenes = [
       { t:"Refuse. Stay poor, stay home, stay ours.", note:"Soul and fans hold. The dice stay long.", tags:['outsider-hold','ownership-hold','regime-hold','stay-hold'],
         run:()=>{ meters.soul+=15; meters.fans+=15; meters.money-=15; } },
     ] },
-{ sp:"The women's game returns", year:"{PLACE} · 2012", seasons:4,
+
+  { sp:"The women's game returns", year:"{PLACE} · 2012", seasons:4,
     pr:()=> defiedBan
       ? "A professional women's league is forming. The club that defied the ban in 1921 is the obvious home for a side. The history is yours to claim."
       : "A professional women's league is forming. Backing a side would cost money up front, with a slow and uncertain return.",
@@ -757,6 +768,7 @@ const scenes = [
       { t:"Leave it to others.", note:"No cost. No claim on the future of the game.", tags:[],
         run:()=>{ meters.soul-=5; } },
     ] },
+
   { sp:"The invitation", year:"{PLACE} · 2020", seasons:4,
     pr:"An envelope arrives. Twelve clubs are forming a closed European competition. Guaranteed matches, guaranteed money, no promotion, no relegation. A standing invitation to the top table, forever. Your city would be on the poster.",
     ch:[
@@ -801,6 +813,18 @@ function drawSquad(){
      `<div style="position:absolute;top:9px;left:${leaguePct}%;transform:translateX(-50%);font-size:10px;color:var(--muted);white-space:nowrap">league</div>` +
      `</div>`;
   document.getElementById("squadBox").innerHTML=h;
+  drawReach();
+}
+
+// The reach strip: five tiers light up as the club spreads outward.
+// Lighting up is the cost, not the prize.
+function drawReach(){
+  const tiers=["The district","The city","The nation","The continent","The world"];
+  const lit=Math.round(reach/20);
+  let h=`<h3>Reach · ${tiers[Math.min(4,Math.max(0,lit-1))]||"The district"}</h3><div class="dots">`;
+  for(let i=0;i<5;i++) h+=`<span class="dot ${i<lit?'lit':''}"></span>`;
+  h+=`</div><div class="reachpct">${reach} / 100 — global reach</div>`;
+  document.getElementById("reachStrip").innerHTML=h;
 }
 
 function showScene(){
@@ -810,7 +834,6 @@ function showScene(){
   document.getElementById("year").textContent=s.year.replace('{PLACE}',place);
   document.getElementById("sp").textContent=s.sp;
   const prText = (typeof s.pr==='function') ? s.pr() : s.pr;
- const prText = (typeof s.pr==='function') ? s.pr() : s.pr;
   document.getElementById("pr").textContent=prText.replace("${STR}",strength());
   document.getElementById("fo").textContent="";
   document.getElementById("rollOut").innerHTML="";
@@ -818,7 +841,7 @@ function showScene(){
   const c=document.getElementById("ch"); c.innerHTML="";
   visibleChoices(s).forEach((o)=>{ const b=document.createElement("button"); b.className="c";
     if(o.conflict) b.style.borderColor="var(--gold)";
-    const noteText = (typeof o.note==='function') ? o.note() : (o.note||""); b.innerHTML=`${o.t}<small>${noteText}</small>`; b.onclick=()=>pick(o._idx); c.appendChild(b); });
+    const noteText=(typeof o.note==='function')?o.note():(o.note||""); b.innerHTML=`${o.t}<small>${noteText}</small>`; b.onclick=()=>pick(o._idx); c.appendChild(b); });
   drawMeters(); drawSquad();
 }
 
@@ -839,6 +862,9 @@ function pick(i){
   for(const k in meters) delta[k]=meters[k]-before[k];
   applyModifiers(delta,tags);
   for(const k in meters) meters[k]=clamp(before[k]+delta[k]);
+  // Global reach grows from selling out and from spreading the club outward.
+  if(tags.includes('commercial')) reach=Math.min(100,reach+12);
+  if(tags.includes('move')||tags.includes('ownership')) reach=Math.min(100,reach+8);
   document.getElementById("ch").innerHTML="";
   document.getElementById("fo").textContent=(typeof o.note==='function')?o.note():(o.note||"");
   document.getElementById("rollOut").innerHTML="";
@@ -856,6 +882,7 @@ document.getElementById("nx").onclick=function(){
   const r=playSeason();
   const rew=seasonRewards(r);
   if(r.won) trophies++;
+  if(r.won) reach=Math.min(100,reach+4);  // titles spread your name too
   // Apply the season's money/fan feedback, clamped.
   meters.money=clamp(meters.money+rew.money);
   meters.fans =clamp(meters.fans +rew.fans);
