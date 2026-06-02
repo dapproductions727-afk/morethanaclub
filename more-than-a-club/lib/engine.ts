@@ -159,7 +159,8 @@ export function passEra(
 }
 
 // Derive how the stadium should be drawn from accumulated decision flags and
-// the era. This is what makes the ground react to the player, not the clock.
+// the era. The ground reacts to the player, not the clock: each decision bolts
+// a new visible feature onto the structure, the way the floodlights do.
 export function deriveStadium(state: {
   era: number;
   rebuilt: boolean;
@@ -167,20 +168,40 @@ export function deriveStadium(state: {
   movedOut: boolean;
   corporate: boolean;
   lights: boolean;
+  radio: boolean;
+  tv: boolean;
 }): StadiumState {
-  // Base tier grows slowly with the century...
-  let built = 0;
-  if (state.era >= 3) built = 1; // brick terrace by the 1930s
-  if (state.era >= 7) built = 2; // concrete by the 1970s
-  // ...but decisions override it.
-  if (state.rebuilt || state.newStand) built = Math.max(built, 2);
-  if (state.corporate) built = 3; // the fund builds the glass cathedral
-  if (state.movedOut) built = Math.max(built, 2);
+  // Material grows slowly with the century, then decisions override it.
+  // era 0-1: open wooden bleachers. ~era 2: a covered wooden stand.
+  // ~era 3: brick terrace. The rebuild puts up concrete; the fund, glass.
+  let material: StadiumState["material"] = "bleacher";
+  if (state.era >= 2) material = "wood";
+  if (state.era >= 3) material = "brick";
+  if (state.rebuilt || state.newStand) material = "concrete";
+  if (state.corporate) material = "glass";
+
+  // Roof follows the material, unless rebuilt/corporate upgrade it.
+  let roof: StadiumState["roof"] = "none";
+  if (material === "wood") roof = "wood";
+  if (material === "brick") roof = "pitch";
+  if (material === "concrete") roof = "cantilever";
+  if (material === "glass") roof = "glass";
+
+  const tiers = state.newStand || state.corporate ? 2 : 1;
+
+  // Keep `built` as a coarse 0-3 for any code that still wants a single number.
+  const built = material === "glass" ? 3 : material === "concrete" ? 2 : material === "brick" ? 1 : 0;
+
   return {
     built,
+    material,
+    roof,
+    tiers,
     movedOut: state.movedOut,
     corporate: state.corporate,
     lights: state.lights,
+    radio: state.radio,
+    tv: state.tv,
   };
 }
 

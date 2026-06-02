@@ -164,6 +164,13 @@ export const scenes: Scene[] = [
     year: "{PLACE} · 1958",
     seasons: 4,
     tech: "floodlights",
+    bigMatch: {
+      kind: "Floodlit friendly",
+      setup: "The first match under the new lights. A famous touring side, a full house, and a chance late on to win it in front of everyone.",
+      prompt: "Tap to shoot — aim wide of the keeper.",
+      rewardWin: { fans: 10, money: 6, soul: 4 },
+      rewardLose: { fans: 1, money: 2, soul: -1 },
+    },
     pr: "Four steel pylons and the night becomes playable. Midweek matches under the lights pull crowds the Saturday gate never could. The installation is not cheap, and the old guard says football is a daylight game.",
     ch: [
       {
@@ -229,6 +236,13 @@ export const scenes: Scene[] = [
     sp: "The terraces",
     year: "{PLACE} · 1975",
     seasons: 5,
+    bigMatch: {
+      kind: "Promotion decider",
+      setup: "Win the last game and you go up. The away end is packed three deep. A loose ball drops on the edge of the box with minutes left.",
+      prompt: "Tap to shoot for the corner.",
+      rewardWin: { fans: 13, money: 7, soul: 5 },
+      rewardLose: { fans: -6, money: 1, soul: -2 },
+    },
     pr: "The supporters' association has drafted a proposal: two seats on the board, one vote in three. They say the club was built with their money and their fathers' money before that. The board says it will slow everything down.",
     ch: [
       {
@@ -368,6 +382,13 @@ export const scenes: Scene[] = [
     sp: "The consortium",
     year: "{PLACE} · 2005",
     seasons: 5,
+    bigMatch: {
+      kind: "European night",
+      setup: "A continental giant under the lights, the tie level on aggregate. One chance breaks late, the goalkeeper off his line.",
+      prompt: "Tap to shoot — beat the keeper.",
+      rewardWin: { fans: 14, money: 10, soul: 3 },
+      rewardLose: { fans: 3, money: 3, soul: -1 },
+    },
     pr: "A media consortium will finance a title challenge: signings, wages, a new training ground. Strength is ${STR}. The repayment terms are generous until the revenue projections miss. Clubs have done this and won. Some have since ceased to exist.",
     ch: [
       {
@@ -474,6 +495,13 @@ export const scenes: Scene[] = [
     year: "{PLACE} · 2020",
     seasons: 4,
     tech: "cameras",
+    bigMatch: {
+      kind: "The derby",
+      setup: "The old enemy, the rivals who took the money you refused. Their fans have travelled. Stoppage time, level, a chance at the near post.",
+      prompt: "Tap to shoot — silence the away end.",
+      rewardWin: { fans: 15, money: 6, soul: 6 },
+      rewardLose: { fans: -8, money: 1, soul: -3 },
+    },
     pr: "An envelope arrives. Twelve clubs are forming a closed European competition. Guaranteed matches, guaranteed money, no promotion, no relegation. A standing invitation to the top table, forever. Your city would be on the poster.",
     ch: [
       {

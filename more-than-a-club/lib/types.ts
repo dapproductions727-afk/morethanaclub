@@ -90,11 +90,19 @@ export interface RunContext {
 export type FlagKey = "charterBroken" | "defiedBan";
 
 // ---- Stadium state: the ground reacts to decisions, not just the clock ----
+export type StadiumMaterial = "bleacher" | "wood" | "brick" | "concrete" | "glass";
+export type StadiumRoof = "none" | "wood" | "pitch" | "cantilever" | "glass";
+
 export interface StadiumState {
   built: number; // 0 wooden, 1 brick terrace, 2 concrete bowl, 3 glass cathedral
+  material: StadiumMaterial; // what the main stand is made of
+  roof: StadiumRoof; // what tops it
+  tiers: number; // 1 or 2 (second tier when the new stand is built)
   movedOut: boolean; // demolished old ground, built out of town
   corporate: boolean; // sold to the fund: signage, sterile bowl
   lights: boolean; // floodlights unlocked
+  radio: boolean; // radio mast appears once broadcasting begins
+  tv: boolean; // TV tower + camera gantry once televised
 }
 
 // ---- Fan mood: recent form colours the crowd and the writing ----

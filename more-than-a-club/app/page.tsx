@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Meters, Player, Founding, FlagKey, RunContext, Mood, Manager, BigMatch } from "@/lib/types";
+import type { Meters, Player, Founding, FlagKey, RunContext, Mood, Manager, BigMatch, StadiumState } from "@/lib/types";
 import { REGIONS } from "@/lib/regions";
 import { STORIES, RULES } from "@/lib/charter";
 import { scenes, bindSceneHooks } from "@/lib/scenes";
@@ -120,10 +120,12 @@ export default function Game() {
   const manager = managerByKey(managerKey);
   const mood: Mood = moodFromForm(form);
   const lightsOn = unlockedTech.has("floodlights");
+  const radioOn = unlockedTech.has("radio");
+  const tvOn = unlockedTech.has("television");
   const neighborhoodVal = movedOut
     ? clamp(Math.round(meters.fans * 0.2))
     : clamp(Math.round(meters.fans * 0.6 + meters.soul * 0.4));
-  const stadium = deriveStadium({ era: current, rebuilt, newStand, movedOut, corporate, lights: lightsOn });
+  const stadium = deriveStadium({ era: current, rebuilt, newStand, movedOut, corporate, lights: lightsOn, radio: radioOn, tv: tvOn });
   const leaguePos = playerPosition(strength(squad), current);
   const table = leagueTable(clubName, strength(squad), current);
 
@@ -431,12 +433,9 @@ export default function Game() {
   }
 
   // Resolve a tap-to-play match moment. `quality` 0..1 from the tap timing.
-  function resolveMatch(quality: number) {
+  function resolveMatch(success: boolean) {
     const m = pendingMatch;
     if (!m) return;
-    // Base on squad odds, lifted by tap quality.
-    const base = playSeason(squad, manager?.oddsMod || 1, seedRng.current).chance;
-    const success = seedRng.current() < Math.min(0.92, base + quality * 0.55);
     const rew = success ? m.rewardWin : m.rewardLose;
 
     let nextMeters: Meters = {
@@ -499,12 +498,16 @@ export default function Game() {
         <div className="year">{yearLine}</div>
       </header>
       <Stadium
-        built={stadium.built}
+        material={stadium.material}
+        roof={stadium.roof}
+        tiers={stadium.tiers}
         crowd={meters.fans}
         neighborhood={neighborhoodVal}
         lights={stadium.lights}
         movedOut={stadium.movedOut}
         corporate={stadium.corporate}
+        radio={stadium.radio}
+        tv={stadium.tv}
         night={lightsOn}
         mood={mood}
       />
@@ -591,7 +594,13 @@ export default function Game() {
       {phase === "match" && pendingMatch && (
         <>
           {hudGame}
-          <MatchMoment match={pendingMatch} onResolve={resolveMatch} />
+          <MatchMoment
+            match={pendingMatch}
+            baseOdds={Math.min(0.85, playSeason(squad, manager?.oddsMod || 1, () => 0.5).chance * 1.6)}
+            speed={1.4 + current * 0.12}
+            sweetHalfWidth={Math.min(20, 9 + Math.round((strength(squad) - 180) / 12) + (manager?.key === "showman" ? 4 : 0))}
+            onResolve={resolveMatch}
+          />
         </>
       )}
 
@@ -764,17 +773,35 @@ function ManagerScreen({ onHire }: { onHire: (key: string) => void }) {
 }
 
 // Tap-to-play match moment: a moving bar; tap near the sweet spot for quality.
-function MatchMoment({ match, onResolve }: { match: BigMatch; onResolve: (quality: number) => void }) {
-  const [pos, setPos] = useState(0);
-  const [dir, setDir] = useState(1);
-  const [done, setDone] = useState(false);
+// A juiced-up tap-to-shoot moment. A pixel goal with a keeper; a marker sweeps
+// across the goalmouth; tap to shoot at whatever third the marker is over. The
+// keeper dives somewhere, and you score if you placed it away from the dive and
+// timed it cleanly. Sweet-spot width and bar speed scale with squad/manager and
+// the era, so your boardroom choices make the moment easier or harder.
+function MatchMoment({
+  match,
+  baseOdds,
+  speed,
+  sweetHalfWidth,
+  onResolve,
+}: {
+  match: BigMatch;
+  baseOdds: number; // 0..1 squad+manager strength
+  speed: number; // marker speed (px-per-frame), climbs with era
+  sweetHalfWidth: number; // half-width of the good zone in %, wider = easier
+  onResolve: (success: boolean) => void;
+}) {
+  const [pos, setPos] = useState(0); // 0..100 marker position
+  const [phase, setPhase] = useState<"aim" | "shot" | "result">("aim");
+  const [result, setResult] = useState<{ success: boolean; ballX: number; keeperX: number } | null>(null);
   const raf = useRef<number | null>(null);
 
   useEffect(() => {
+    if (phase !== "aim") return;
     let p = 0;
     let d = 1;
     const tick = () => {
-      p += d * 1.7;
+      p += d * speed;
       if (p >= 100) {
         p = 100;
         d = -1;
@@ -784,41 +811,149 @@ function MatchMoment({ match, onResolve }: { match: BigMatch; onResolve: (qualit
         d = 1;
       }
       setPos(p);
-      setDir(d);
       raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);
     return () => {
       if (raf.current) cancelAnimationFrame(raf.current);
     };
-  }, []);
+  }, [phase, speed]);
 
-  function tap() {
-    if (done) return;
-    setDone(true);
+  function shoot() {
+    if (phase !== "aim") return;
     if (raf.current) cancelAnimationFrame(raf.current);
-    // Sweet spot is the centre (50). Quality is how close you stopped.
-    const quality = Math.max(0, 1 - Math.abs(pos - 50) / 50);
-    setTimeout(() => onResolve(quality), 500);
+    setPhase("shot");
+
+    // Quality: how close the marker is to the sweet centre (50).
+    const offset = Math.abs(pos - 50);
+    const cleanStrike = offset <= sweetHalfWidth;
+    const quality = Math.max(0, 1 - offset / 50);
+
+    // The keeper dives. Where you shot is `pos`. The keeper guesses a third.
+    // A clean strike beats the keeper unless they guess your exact spot; a
+    // scrappy strike depends on squad odds.
+    const keeperGuess = 20 + Math.floor(Math.random() * 3) * 30; // 20,50,80
+    const keeperReaches = Math.abs(keeperGuess - pos) < 12;
+    let success: boolean;
+    if (cleanStrike && !keeperReaches) success = true;
+    else if (keeperReaches && !cleanStrike) success = false;
+    else success = Math.random() < Math.min(0.95, baseOdds + quality * 0.5);
+
+    // Animate: ball flies to pos, keeper dives to guess.
+    setResult({ success, ballX: pos, keeperX: keeperGuess });
+    setTimeout(() => setPhase("result"), 650);
+    setTimeout(() => onResolve(success), 1700);
   }
 
+  // Build the pixel goal scene as an SVG.
+  const goalSvg = (() => {
+    const PXX = 4;
+    const GW = 120;
+    const GH = 70;
+    const r: string[] = [];
+    const rect = (x: number, y: number, w: number, h: number, f: string, o?: number) =>
+      r.push(`<rect x="${x * PXX}" y="${y * PXX}" width="${w * PXX}" height="${h * PXX}" fill="${f}"${o != null ? ` opacity="${o}"` : ""} shape-rendering="crispEdges"/>`);
+    // night sky + crowd haze
+    rect(0, 0, GW, GH, "#0c1322");
+    rect(0, 0, GW, 14, "#15203a");
+    // distant crowd specks
+    let s = 99;
+    const rnd = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff), s / 0x7fffffff);
+    for (let i = 0; i < 180; i++) {
+      const cx = Math.floor(rnd() * GW);
+      const cy = Math.floor(rnd() * 12);
+      rect(cx, cy, 1, 1, ["#e0a93a", "#6fd06a", "#59a6d6", "#d96a8e", "#e8f0d8"][Math.floor(rnd() * 5)], 0.8);
+    }
+    // grass
+    rect(0, 40, GW, GH - 40, "#2f7d3a");
+    for (let i = 0; i < 8; i++) rect(i * 16, 40, 8, GH - 40, "#2a7034", 0.5);
+    // goal frame
+    const gx = 22;
+    const gy = 14;
+    const gw = 76;
+    const gh = 26;
+    rect(gx, gy, gw, 2, "#e8eef0"); // crossbar
+    rect(gx, gy, 2, gh, "#e8eef0"); // left post
+    rect(gx + gw - 2, gy, 2, gh, "#e8eef0"); // right post
+    // net hint
+    for (let i = gx + 4; i < gx + gw - 2; i += 4) rect(i, gy + 2, 1, gh - 2, "#9fb6c4", 0.25);
+    for (let j = gy + 4; j < gy + gh; j += 4) rect(gx + 2, j, gw - 4, 1, "#9fb6c4", 0.2);
+    // thirds markers along the goal line (aim guide)
+    const goalLeft = gx + 4;
+    const goalSpan = gw - 8;
+    const markerX = goalLeft + (pos / 100) * goalSpan;
+    // sweet zone shading (centre)
+    const sweetL = goalLeft + ((50 - sweetHalfWidth) / 100) * goalSpan;
+    const sweetW = (sweetHalfWidth * 2 / 100) * goalSpan;
+    if (phase === "aim") rect(Math.round(sweetL), gy + gh - 3, Math.round(sweetW), 2, "#6fd06a", 0.5);
+
+    // keeper
+    const kx = result ? goalLeft + (result.keeperX / 100) * goalSpan : gx + gw / 2 - 3;
+    const ky = gy + gh - 10;
+    const diving = phase === "result" && result;
+    if (diving) {
+      // sprawled keeper
+      rect(Math.round(kx) - 2, ky + 6, 8, 2, "#e0a93a");
+      rect(Math.round(kx), ky + 3, 3, 4, "#e0a93a");
+      rect(Math.round(kx), ky + 1, 2, 2, "#f0d0c0");
+    } else {
+      rect(Math.round(kx), ky, 3, 6, "#e0a93a");
+      rect(Math.round(kx), ky - 2, 2, 2, "#f0d0c0");
+      rect(Math.round(kx) - 1, ky + 1, 5, 1, "#e0a93a"); // arms out
+    }
+
+    // ball: at the spot (penalty mark) while aiming, flying to target on shot
+    if (phase === "aim") {
+      rect(gx + gw / 2 - 1, 54, 2, 2, "#f4f4f0");
+      // aim marker line
+      rect(Math.round(markerX), gy + 2, 1, gh - 2, "#f2c14e", 0.9);
+      rect(Math.round(markerX) - 1, gy + gh - 2, 3, 2, "#f2c14e");
+    } else if (result) {
+      const bx = goalLeft + (result.ballX / 100) * goalSpan;
+      const by = result.success ? gy + 6 : ky + 1;
+      rect(Math.round(bx) - 1, Math.round(by), 2, 2, "#f4f4f0");
+      // trail
+      rect(gx + gw / 2 - 1, 54, 2, 2, "#f4f4f0", 0.3);
+    }
+    return `<svg viewBox="0 0 ${GW * PXX} ${GH * PXX}" width="100%" style="display:block;image-rendering:pixelated">${r.join("")}</svg>`;
+  })();
+
+  // The ENTIRE moment area is one big tap target. Tapping anywhere (the goal,
+  // the button, the whole card) stops the sweeping marker and shoots in one
+  // action — so you watch the goal and tap when the aim line is where you want,
+  // no reaching for a separate button.
   return (
-    <div className="card matchcard">
+    <div
+      className="card matchcard"
+      style={{ cursor: phase === "aim" ? "pointer" : "default", userSelect: "none" }}
+      onClick={shoot}
+    >
       <div className="sp">{match.kind}</div>
-      <div className="pr" style={{ flex: "none", marginBottom: 14 }}>
+      <div className="pr" style={{ flex: "none", marginBottom: 8 }}>
         {match.setup}
       </div>
-      <div className="matchbar" onClick={tap}>
-        <div className="matchtrack">
-          <div className="matchsweet" />
-          <div className="matchmarker" style={{ left: `${pos}%` }} />
+      {phase === "aim" && (
+        <div className="matchprompt pix" style={{ marginBottom: 6 }}>
+          The aim line sweeps across the goal. Tap when it&apos;s where you want the ball.
         </div>
-      </div>
-      <div className="matchprompt pix">{done ? "…" : match.prompt}</div>
-      {!done && (
-        <button className="nx" onClick={tap}>
-          STRIKE ▶
+      )}
+      <div
+        style={{ border: "2px solid var(--line)", boxShadow: "var(--shadow)", lineHeight: 0, marginBottom: 10 }}
+        dangerouslySetInnerHTML={{ __html: goalSvg }}
+      />
+      {phase === "result" && result ? (
+        <div
+          className="pix"
+          style={{ textAlign: "center", fontSize: 18, color: result.success ? "var(--green)" : "var(--red)", marginBottom: 8 }}
+        >
+          {result.success ? "GOAL!" : "SAVED"}
+        </div>
+      ) : phase === "aim" ? (
+        <button className="nx" style={{ pointerEvents: "none" }}>
+          TAP ANYWHERE TO SHOOT ▶
         </button>
+      ) : (
+        <div className="matchprompt pix">…</div>
       )}
     </div>
   );
@@ -838,7 +973,7 @@ function EndingScreen({
   onRestart,
 }: {
   ending: { title: string; body: string; caption: string };
-  stadium: { built: number; movedOut: boolean; corporate: boolean; lights: boolean };
+  stadium: StadiumState;
   fans: number;
   neighborhood: number;
   mood: Mood;
@@ -858,12 +993,16 @@ function EndingScreen({
         <div className="year">2024 · A hundred years on</div>
       </header>
       <Stadium
-        built={stadium.built}
+        material={stadium.material}
+        roof={stadium.roof}
+        tiers={stadium.tiers}
         crowd={fans}
         neighborhood={neighborhood}
         lights={stadium.lights}
         movedOut={stadium.movedOut}
         corporate={stadium.corporate}
+        radio={stadium.radio}
+        tv={stadium.tv}
         night={stadium.lights}
         mood={mood}
       />

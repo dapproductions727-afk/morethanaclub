@@ -6,3 +6,5 @@ tsconfig.tsbuildinfo
 .DS_Store
 *.log
 play/
+draft/
+Play DRAFT.command
