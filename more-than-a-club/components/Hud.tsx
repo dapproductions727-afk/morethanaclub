@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { Meters, Player, Mood, Manager } from "@/lib/types";
 import { strength, titleChance, meterLabels, TECHS, MOOD_LABEL, MOOD_COLOR, cultureLabel } from "@/lib/engine";
 
@@ -179,16 +180,36 @@ export function ReachStrip({ reach }: { reach: number }) {
 export function TechTimeline({ unlocked }: { unlocked: Set<string> }) {
   // Show in chronological order by year.
   const ordered = [...TECHS].sort((a, b) => Number(a.year) - Number(b.year));
+  const [selected, setSelected] = useState<string | null>(null);
+  const active = ordered.find((t) => t.key === selected) ?? null;
   return (
     <div className="panel tech">
       <h3>Technology</h3>
       <div className="chips">
         {ordered.map((t) => (
-          <span className={`chip ${unlocked.has(t.key) ? "on" : ""}`} key={t.key} title={t.blurb}>
+          <button
+            type="button"
+            className={`chip ${unlocked.has(t.key) ? "on" : ""} ${selected === t.key ? "sel" : ""}`}
+            key={t.key}
+            title={t.blurb}
+            aria-pressed={selected === t.key}
+            onClick={() => setSelected((cur) => (cur === t.key ? null : t.key))}
+          >
             {t.name} {unlocked.has(t.key) ? `'${t.year.slice(2)}` : "—"}
-          </span>
+          </button>
         ))}
       </div>
+      {active && (
+        <div className="tech-history">
+          <div className="tech-history-head">
+            <strong>{active.name}</strong>
+            <span className="tech-history-year">{active.year}</span>
+            {!unlocked.has(active.key) && <span className="tech-history-lock">not yet unlocked</span>}
+          </div>
+          <p className="tech-history-blurb">{active.blurb}</p>
+          <p className="tech-history-body">{active.history}</p>
+        </div>
+      )}
     </div>
   );
 }

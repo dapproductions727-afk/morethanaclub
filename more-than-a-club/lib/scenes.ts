@@ -524,7 +524,7 @@ export const scenes: Scene[] = [
     sp: "The invitation",
     year: "{PLACE} · 2020",
     seasons: 4,
-    tech: "cameras",
+    tech: "streaming",
     bigMatch: {
       kind: "The derby",
       setup: "The old enemy, the rivals who took the money you refused. Their fans have travelled. Stoppage time, level, a chance at the near post.",

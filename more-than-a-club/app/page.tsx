@@ -1095,23 +1095,55 @@ function MatchMoment({
     if (raf.current) cancelAnimationFrame(raf.current);
     setPhase("shot");
 
-    // Quality: how close the marker is to the sweet centre (50).
-    const offset = Math.abs(pos - 50);
-    const cleanStrike = offset <= sweetHalfWidth;
-    const quality = Math.max(0, 1 - offset / 50);
+    // One coherent model that matches what the player sees:
+    //  - You stop the sweeping aim line at `pos` (0..100 across the goal).
+    //  - The keeper commits to one third and dives there.
+    //  - You score by placing the ball away from the keeper's dive.
+    //  - "Clean strike" = you stopped the line near a deliberate spot (a corner
+    //    or the centre), rather than catching it mid-sweep. Clean timing lets
+    //    you commit confidently; sloppy timing wobbles the placement.
+    //
+    // The keeper reaches a band around where they dove. The width of that band
+    // is what difficulty tunes: a clean shot placed outside the band is a goal,
+    // a shot into the band is saved, and only genuinely marginal shots fall to
+    // squad strength.
 
-    // The keeper dives. Where you shot is `pos`. The keeper guesses a third.
-    // A clean strike beats the keeper unless they guess your exact spot; a
-    // scrappy strike depends on squad odds.
-    const keeperGuess = 20 + Math.floor(Math.random() * 3) * 30; // 20,50,80
-    const keeperReaches = Math.abs(keeperGuess - pos) < 12;
+    // Nearest deliberate target (corner or centre) and how cleanly we hit it.
+    const targets = [10, 50, 90];
+    const nearestTarget = targets.reduce((a, b) =>
+      Math.abs(b - pos) < Math.abs(a - pos) ? b : a
+    );
+    const aimError = Math.abs(pos - nearestTarget);
+    // sweetHalfWidth scales the timing window: inside it = a committed, clean strike.
+    const cleanStrike = aimError <= sweetHalfWidth;
+    // Sloppy timing pushes the ball toward the middle of the goal (toward the keeper-friendly zone).
+    const placedPos = cleanStrike
+      ? pos
+      : pos + (50 - pos) * Math.min(1, (aimError - sweetHalfWidth) / 25);
+
+    // Keeper dives to one of three thirds. A stronger squad earns a keeper that
+    // guesses your side slightly less often (better penalty taker draws the dive away).
+    const keeperGuess = 20 + Math.floor(Math.random() * 3) * 30; // 20, 50, 80
+    // Reach band: balanced difficulty. Keeper saves anything within ~18 of the dive.
+    const reachBand = 18;
+    const distFromKeeper = Math.abs(keeperGuess - placedPos);
+
     let success: boolean;
-    if (cleanStrike && !keeperReaches) success = true;
-    else if (keeperReaches && !cleanStrike) success = false;
-    else success = Math.random() < Math.min(0.95, baseOdds + quality * 0.5);
+    if (distFromKeeper >= reachBand && cleanStrike) {
+      // Well placed away from the dive, struck cleanly: goal.
+      success = true;
+    } else if (distFromKeeper < reachBand - 4) {
+      // Hit right where the keeper went: saved.
+      success = false;
+    } else {
+      // Marginal — clipped the edge of the reach, or placed well but timed poorly.
+      // Resolve with squad strength plus a bonus for how far from the keeper it landed.
+      const placement = Math.min(1, distFromKeeper / 50);
+      success = Math.random() < Math.min(0.95, baseOdds * 0.6 + placement * 0.5);
+    }
 
-    // Animate: ball flies to pos, keeper dives to guess.
-    setResult({ success, ballX: pos, keeperX: keeperGuess });
+    // Animate: ball flies to where it was actually placed, keeper dives to guess.
+    setResult({ success, ballX: placedPos, keeperX: keeperGuess });
     setTimeout(() => setPhase("result"), 650);
     setTimeout(() => onResolve(success), 1700);
   }

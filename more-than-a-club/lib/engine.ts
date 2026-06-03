@@ -20,11 +20,46 @@ export const meterLabels: Record<string, string> = { money: "Money", soul: "Soul
 // The technology timeline — the Civ-style spine. Each tech "arrives" at a
 // scene that carries its tag, and stays unlocked for the rest of the game.
 export const TECHS = [
-  { key: "radio", name: "Radio", year: "1927", blurb: "A voice in the parlour. Your name leaves the district." },
-  { key: "television", name: "Television", year: "1965", blurb: "The match becomes a broadcast. The gate becomes optional." },
-  { key: "floodlights", name: "Floodlights", year: "1958", blurb: "Football after dark. Midweek crowds, new money." },
-  { key: "data", name: "Data & analytics", year: "2015", blurb: "Every pass measured. The squad becomes a spreadsheet." },
-  { key: "cameras", name: "Surveillance", year: "2020", blurb: "Cameras on every turnstile. The crowd is now the product." },
+  {
+    key: "radio",
+    name: "Radio",
+    year: "1927",
+    blurb: "A voice in the parlour. Your name leaves the district.",
+    history:
+      "Write the club's radio history here. The first crackling commentary that carried the score beyond the terraces — who called it, what they said, the night the whole town listened in.",
+  },
+  {
+    key: "floodlights",
+    name: "Floodlights",
+    year: "1958",
+    blurb: "Football after dark. Midweek crowds, new money.",
+    history:
+      "Write the floodlights history here. The first match under the lights, the midweek crowds it brought, what it cost and who paid for it.",
+  },
+  {
+    key: "television",
+    name: "Television",
+    year: "1965",
+    blurb: "The match becomes a broadcast. The gate becomes optional.",
+    history:
+      "Write the television history here. The first time the cameras carried the club to the country, what it did to the gate, and what it did to the soul of the place.",
+  },
+  {
+    key: "data",
+    name: "Data & analytics",
+    year: "2015",
+    blurb: "Every pass measured. The squad becomes a spreadsheet.",
+    history:
+      "Write the data & analytics history here. The first analyst in the building, the arguments it started, what the numbers saw that the eyes didn't.",
+  },
+  {
+    key: "streaming",
+    name: "Streaming",
+    year: "2020",
+    blurb: "The match goes direct. Anyone, anywhere, on any screen.",
+    history:
+      "Write the streaming history here. The club's own channel, the global audience it reached overnight, and the question of who the match is really for now.",
+  },
 ] as const;
 
 export function clamp(n: number): number {

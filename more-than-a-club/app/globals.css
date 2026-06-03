@@ -272,12 +272,43 @@ header.hud .year {
   border: 2px solid var(--line);
   color: var(--muted);
   background: #0a0d09;
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s;
 }
+.tech .chip:hover { border-color: var(--muted); }
 .tech .chip.on {
   color: var(--blue);
   border-color: var(--blue);
   text-shadow: 0 0 4px rgba(89,166,214,0.5);
 }
+.tech .chip.sel {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+.tech .tech-history {
+  margin-top: 10px;
+  padding: 10px;
+  border: 2px solid var(--line);
+  background: #0a0d09;
+}
+.tech .tech-history-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.tech .tech-history-head strong { color: var(--ink); font-size: 13px; }
+.tech .tech-history-year { color: var(--muted); font-size: 12px; }
+.tech .tech-history-lock {
+  margin-left: auto;
+  color: var(--muted);
+  font-family: var(--font-pixel), monospace;
+  font-size: 7px;
+  opacity: 0.8;
+}
+.tech .tech-history-blurb { color: var(--muted); font-size: 13px; font-style: italic; margin: 0 0 6px; }
+.tech .tech-history-body { color: var(--ink); font-size: 13px; line-height: 1.5; margin: 0; }
 
 /* ---------- Scene card ---------- */
 .card {
