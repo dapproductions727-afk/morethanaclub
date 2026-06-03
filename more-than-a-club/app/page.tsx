@@ -25,11 +25,18 @@ import {
   formDelta,
   nextForm,
   deriveStadium,
+  cultureLabel,
+  cultureDelta,
 } from "@/lib/engine";
 import Stadium from "@/components/Stadium";
-import { MetersBar, SquadPanel, ReachStrip, TechTimeline, MoodMeter, ManagerPanel, NewsTicker, LeagueTable } from "@/components/Hud";
+import { MetersBar, SquadPanel, ReachStrip, TechTimeline, MoodMeter, ManagerPanel, NewsTicker, LeagueTable, CultureStrip } from "@/components/Hud";
 
-type Phase = "boot" | "founding" | "summary" | "manager" | "scene" | "seasons" | "match" | "ending";
+type Phase = "boot" | "founding" | "summary" | "manager" | "scene" | "seasons" | "match" | "pressure" | "ending";
+
+interface PressureEvent {
+  kind: "fan_pressure" | "rival_interest";
+  managerName: string;
+}
 
 const foundingFlow = [
   {
@@ -77,7 +84,15 @@ export default function Game() {
   // Fan form/mood + manager + news.
   const [form, setForm] = useState(0);
   const [managerKey, setManagerKey] = useState<string | null>(null);
+  const [managerTenure, setManagerTenure] = useState(0);
   const [news, setNews] = useState<string[]>([]);
+
+  // Culture axis: negative = deep community roots, positive = commercial drift.
+  const [culture, setCulture] = useState(0);
+
+  // Tracks whether charter was already broken at the end of the previous era,
+  // so we can detect when it's newly broken and trigger a manager resignation.
+  const charterWasBroken = useRef(false);
 
   // Season run-through state.
   const [seasonInEra, setSeasonInEra] = useState(0);
@@ -88,6 +103,9 @@ export default function Game() {
 
   // Match-moment state.
   const [pendingMatch, setPendingMatch] = useState<BigMatch | null>(null);
+
+  // Manager pressure event waiting for player decision.
+  const [pendingPressure, setPendingPressure] = useState<PressureEvent | null>(null);
 
   // Replayability: run history, league position, seeded mode.
   const [runLog, setRunLog] = useState<{ year: string; text: string }[]>([]);
@@ -225,6 +243,9 @@ export default function Game() {
 
   function hireManager(key: string) {
     setManagerKey(key);
+    setManagerTenure(0);
+    // New manager starts fresh — don't fire resignation based on old charter state.
+    charterWasBroken.current = charterBroken;
     setNews((n) => [...n, `APPOINTED: ${managerByKey(key)?.name} takes the dugout.`]);
     setPhase("scene");
   }
@@ -287,6 +308,8 @@ export default function Game() {
     if (tags.includes("commercial")) newReach = Math.min(100, newReach + 12);
     if (tags.includes("move") || tags.includes("ownership")) newReach = Math.min(100, newReach + 8);
 
+    setCulture((c) => Math.max(-50, Math.min(50, c + cultureDelta(tags))));
+
     // Apply stadium effects from this choice.
     if (opt.fx?.stadium === "rebuild") setRebuilt(true);
     if (opt.fx?.stadium === "newStand") setNewStand(true);
@@ -316,7 +339,7 @@ export default function Game() {
   // =====================================================================
   // SEASONS
   // =====================================================================
-  function endOfEra(latestSquad: Player[], latestMeters: Meters) {
+  function endOfEra(latestSquad: Player[], latestMeters: Meters, latestForm: number) {
     const aged = passEra(latestSquad, latestMeters, founding.region as string, nameCounter.current, manager?.youthBonus || 0);
     // Manager's per-era nudge to soul/fans.
     const withMgr: Meters = {
@@ -335,10 +358,87 @@ export default function Game() {
       setTimeout(() => setFlashText(null), 1400);
     }
     setCurrent(next);
+
     if (next >= scenes.length || withMgr.soul <= 0 || withMgr.money <= 0 || withMgr.fans <= 0) {
+      charterWasBroken.current = charterBroken;
       finalizeRun(withMgr);
+      return;
+    }
+
+    // Check for manager departure before advancing to the next scene.
+    const newTenure = managerTenure + 1;
+    setManagerTenure(newTenure);
+
+    if (manager) {
+      const brokenThisEra = charterBroken && !charterWasBroken.current;
+
+      // Resignation: charter newly broken and this manager has soul to lose.
+      if (brokenThisEra && manager.soulPerEra > 0) {
+        setNews((n) => [...n, `MANAGER RESIGNS: ${manager.name} walks out in protest.`]);
+        setManagerKey(null);
+        charterWasBroken.current = charterBroken;
+        setPhase("manager");
+        return;
+      }
+
+      // Fan pressure: poor form long enough for the crowd to turn on the manager.
+      if (latestForm < -2 && newTenure >= 2) {
+        setPendingPressure({ kind: "fan_pressure", managerName: manager.name });
+        charterWasBroken.current = charterBroken;
+        setPhase("pressure");
+        return;
+      }
+
+      // Rival interest: a bigger club wants your manager after a strong run.
+      if (latestForm > 3 && manager.oddsMod > 1 && newTenure >= 2) {
+        setPendingPressure({ kind: "rival_interest", managerName: manager.name });
+        charterWasBroken.current = charterBroken;
+        setPhase("pressure");
+        return;
+      }
+
+      // Background departure: a quieter risk even in ordinary eras.
+      if (newTenure >= 3) {
+        const chance = Math.min(0.12, 0.04 + (manager.oddsMod - 1) * 0.4);
+        if (seedRng.current() < chance) {
+          setNews((n) => [...n, `MANAGER LEAVES: ${manager.name} departs for bigger things.`]);
+          setManagerKey(null);
+          charterWasBroken.current = charterBroken;
+          setPhase("manager");
+          return;
+        }
+      }
+    }
+
+    charterWasBroken.current = charterBroken;
+    setPhase("scene");
+  }
+
+  function resolvePressure(fire: boolean) {
+    const ev = pendingPressure!;
+    setPendingPressure(null);
+    if (ev.kind === "fan_pressure") {
+      if (fire) {
+        setMeters((m) => ({ ...m, fans: clamp(m.fans + 8), soul: clamp(m.soul - 3) }));
+        setNews((n) => [...n, `SACKED: ${ev.managerName} leaves by mutual consent.`]);
+        setManagerKey(null);
+        setPhase("manager");
+      } else {
+        setMeters((m) => ({ ...m, fans: clamp(m.fans - 6), soul: clamp(m.soul + 3) }));
+        setNews((n) => [...n, `BACKED: You've stood by ${ev.managerName}. The fans aren't happy.`]);
+        setPhase("scene");
+      }
     } else {
-      setPhase("scene");
+      if (fire) {
+        setMeters((m) => ({ ...m, money: clamp(m.money + 6), fans: clamp(m.fans - 5) }));
+        setNews((n) => [...n, `MANAGER LEAVES: ${ev.managerName} accepts the offer.`]);
+        setManagerKey(null);
+        setPhase("manager");
+      } else {
+        setMeters((m) => ({ ...m, money: clamp(m.money - 8), fans: clamp(m.fans + 4) }));
+        setNews((n) => [...n, `RETAINED: ${ev.managerName} signs a new deal. It wasn't cheap.`]);
+        setPhase("scene");
+      }
     }
   }
 
@@ -394,7 +494,8 @@ export default function Game() {
       setTrophies((t) => t + 1);
       nextReach = Math.min(100, nextReach + 4);
     }
-    setForm((f) => nextForm(f, formDelta(r)));
+    const latestForm = nextForm(form, formDelta(r));
+    setForm(latestForm);
 
     // Roll a small news event most weeks.
     const ev = rollEvent({ era: current, meters: nextMeters, trophies, reach: nextReach }, seedRng.current);
@@ -428,7 +529,7 @@ export default function Game() {
     setSeasonsLeft((s) => s - 1);
 
     if (isLast) {
-      setTimeout(() => endOfEra(nextSquad, nextMeters), 1100);
+      setTimeout(() => endOfEra(nextSquad, nextMeters, latestForm), 1100);
     }
   }
 
@@ -448,7 +549,8 @@ export default function Game() {
       setTrophies((t) => t + 1);
       nextReach = Math.min(100, nextReach + 6);
     }
-    setForm((f) => nextForm(f, success ? 3 : -2));
+    const latestForm = nextForm(form, success ? 3 : -2);
+    setForm(latestForm);
     setReach(nextReach);
     setMeters(nextMeters);
 
@@ -466,7 +568,7 @@ export default function Game() {
     setSeasonsLeft(0);
     setPendingMatch(null);
     setPhase("seasons");
-    setTimeout(() => endOfEra(squad, nextMeters), 1300);
+    setTimeout(() => endOfEra(squad, nextMeters, latestForm), 1300);
   }
 
   useEffect(() => {
@@ -491,6 +593,18 @@ export default function Game() {
     return "";
   }, [phase, scene, place]);
 
+  // One-line narrative blurb for the current era's story players.
+  const storyBlurb = useMemo(() => {
+    const veteran = squad.find((p) => p.storyTag === "veteran");
+    const captain = squad.find((p) => p.storyTag === "captain");
+    const prospect = squad.find((p) => p.storyTag === "prospect");
+    const parts: string[] = [];
+    if (veteran) parts.push(`${veteran.name}, ${veteran.age}, the old warhorse, is in his final seasons.`);
+    if (captain) parts.push(`${captain.name} leads the side.`);
+    if (prospect) parts.push(`${prospect.name}, ${prospect.age}, is the new face from the academy.`);
+    return parts.join("  ");
+  }, [squad]);
+
   const hudGame = (
     <>
       <header className="hud">
@@ -513,6 +627,7 @@ export default function Game() {
       />
       <MetersBar meters={meters} />
       <MoodMeter mood={mood} form={form} />
+      <CultureStrip culture={culture} />
       <SquadPanel squad={squad} trophies={trophies} />
       <LeagueTable rows={table} />
       <ManagerPanel manager={manager} />
@@ -567,6 +682,11 @@ export default function Game() {
             {phase === "seasons" && (
               <>
                 <div className="fo">{sceneNote}</div>
+                {storyBlurb && (
+                  <div className="fo" style={{ fontStyle: "italic", color: "var(--muted)", marginBottom: 4 }}>
+                    {storyBlurb}
+                  </div>
+                )}
                 <div className="rollOut">
                   {seasonLog.map((l, i) => (
                     <div key={i} className={l.cls}>
@@ -604,6 +724,13 @@ export default function Game() {
         </>
       )}
 
+      {phase === "pressure" && pendingPressure && (
+        <>
+          {hudGame}
+          <PressureCard event={pendingPressure} onResolve={resolvePressure} />
+        </>
+      )}
+
       {phase === "ending" && ending && (
         <EndingScreen
           ending={ending}
@@ -616,6 +743,13 @@ export default function Game() {
           seeded={seeded}
           score={seeded ? seededScore({ trophies, charterBroken, survived: meters.soul > 0 && meters.money > 0 && meters.fans > 0, soul: meters.soul, fans: meters.fans, money: meters.money }) : 0}
           bestPosition={bestPosition}
+          cultureSummary={
+            culture < -20
+              ? "A club that never forgot where it came from."
+              : culture > 20
+              ? "The founders would barely recognise what you built."
+              : "You kept something of both worlds."
+          }
           onRestart={restart}
         />
       )}
@@ -970,6 +1104,7 @@ function EndingScreen({
   seeded,
   score,
   bestPosition,
+  cultureSummary,
   onRestart,
 }: {
   ending: { title: string; body: string; caption: string };
@@ -982,6 +1117,7 @@ function EndingScreen({
   seeded: boolean;
   score: number;
   bestPosition: number;
+  cultureSummary: string;
   onRestart: () => void;
 }) {
   const newKeys = new Set(earned?.newlyEarned || []);
@@ -1014,6 +1150,7 @@ function EndingScreen({
           </p>
           <p>{ending.body}</p>
           <p style={{ color: "var(--muted)", fontSize: 13 }}>{ending.caption}</p>
+          <p style={{ color: "var(--muted)", fontSize: 13, fontStyle: "italic" }}>{cultureSummary}</p>
           <p style={{ color: "var(--green)", fontSize: 13 }}>
             Best league finish: {bestPosition === 1 ? "1st" : bestPosition === 2 ? "2nd" : bestPosition === 3 ? "3rd" : "4th"}
           </p>
@@ -1051,6 +1188,55 @@ function EndingScreen({
             Found another club →
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PressureCard({
+  event,
+  onResolve,
+}: {
+  event: PressureEvent;
+  onResolve: (fire: boolean) => void;
+}) {
+  if (event.kind === "fan_pressure") {
+    return (
+      <div className="card">
+        <div className="sp">The boardroom</div>
+        <div className="pr">
+          A delegation from the supporters&apos; trust has been waiting outside. The form has been
+          unacceptable. They want {event.managerName} gone before the next era starts.
+        </div>
+        <div className="ch">
+          <button className="c" onClick={() => onResolve(true)}>
+            Sack him. The fans come first.
+            <small>Fans recover. Soul takes a knock. Back to the dugout.</small>
+          </button>
+          <button className="c" onClick={() => onResolve(false)}>
+            Back him. Give him another era.
+            <small>The fans are furious for now. Soul holds. He stays.</small>
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="card">
+      <div className="sp">The phone</div>
+      <div className="pr">
+        A bigger club has called about {event.managerName}. They&apos;re offering him the kind of
+        project he&apos;s always wanted. He hasn&apos;t said yes — but he hasn&apos;t said no.
+      </div>
+      <div className="ch">
+        <button className="c" onClick={() => onResolve(false)}>
+          Fight to keep him. Offer a new contract.
+          <small>Costs money. He stays. The fans are glad.</small>
+        </button>
+        <button className="c" onClick={() => onResolve(true)}>
+          Wish him well. Take the compensation.
+          <small>He goes. A little money comes back. Back to the dugout.</small>
+        </button>
       </div>
     </div>
   );

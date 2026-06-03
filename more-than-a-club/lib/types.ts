@@ -13,6 +13,7 @@ export interface Player {
   age: number;
   rating: number;
   foreign: boolean;
+  storyTag?: "prospect" | "captain" | "veteran";
 }
 
 export type Delta = Partial<Meters>;

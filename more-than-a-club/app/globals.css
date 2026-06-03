@@ -70,7 +70,7 @@ body {
     linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
   border-left: 2px solid var(--line);
   border-right: 2px solid var(--line);
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 /* Scanline + vignette overlay sitting above everything, click-through. */

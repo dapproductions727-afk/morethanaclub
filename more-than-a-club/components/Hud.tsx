@@ -1,7 +1,7 @@
 "use client";
 
 import type { Meters, Player, Mood, Manager } from "@/lib/types";
-import { strength, titleChance, meterLabels, TECHS, MOOD_LABEL, MOOD_COLOR } from "@/lib/engine";
+import { strength, titleChance, meterLabels, TECHS, MOOD_LABEL, MOOD_COLOR, cultureLabel } from "@/lib/engine";
 
 export function MoodMeter({ mood, form }: { mood: Mood; form: number }) {
   // five faces on a strip, the active one lit.
@@ -107,7 +107,12 @@ export function SquadPanel({ squad, trophies }: { squad: Player[]; trophies: num
       {xi.map((p, i) => (
         <div className={`player ${p.foreign ? "foreign" : ""}`} key={`${p.name}-${i}`}>
           <span className="name">
-            {p.name} <span className="tag">{p.age}y{p.foreign ? " · foreign" : ""}</span>
+            {p.name}{" "}
+            <span className="tag">
+              {p.age}y
+              {p.foreign ? " · foreign" : ""}
+              {p.storyTag === "captain" ? " · ★" : p.storyTag === "prospect" ? " · ↑" : p.storyTag === "veteran" ? " · vet" : ""}
+            </span>
           </span>
           <span className="rate">{p.rating}</span>
         </div>
@@ -128,6 +133,27 @@ export function SquadPanel({ squad, trophies }: { squad: Player[]; trophies: num
         <div className="marklabel" style={{ left: `${leaguePct}%` }}>
           league
         </div>
+      </div>
+    </div>
+  );
+}
+
+export function CultureStrip({ culture }: { culture: number }) {
+  const label = cultureLabel(culture);
+  const clamped = Math.max(-50, Math.min(50, culture));
+  const pct = ((clamped + 50) / 100) * 100;
+  const color = culture < -15 ? "var(--green)" : culture > 15 ? "var(--red)" : "var(--amber)";
+  return (
+    <div className="panel">
+      <h3>Identity · {label}</h3>
+      <div className="strbar">
+        <div className="track">
+          <span style={{ width: `${pct}%`, background: color }} />
+        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--muted)", marginTop: 2 }}>
+        <span>roots</span>
+        <span>commercial</span>
       </div>
     </div>
   );

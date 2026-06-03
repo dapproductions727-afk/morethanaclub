@@ -130,6 +130,8 @@ export function formDelta(r: SeasonResult): number {
 
 // Age the squad eight years, drop the worn-out, and bring through four youth
 // whose quality scales with soul (the academy) and money (the facilities).
+// Story tags are cleared and reassigned each era: the top new youth is the
+// prospect, the best local senior is the captain, the oldest local is the veteran.
 export function passEra(
   squad: Player[],
   meters: Meters,
@@ -139,7 +141,7 @@ export function passEra(
 ): Player[] {
   const aged = squad
     .map((p) => {
-      const np = { ...p, age: p.age + 8 };
+      const np: Player = { ...p, age: p.age + 8, storyTag: undefined };
       if (np.age > 30) np.rating -= 3;
       return np;
     })
@@ -147,15 +149,32 @@ export function passEra(
 
   const youthRating = Math.round(8 + (meters.soul / 100) * 6 + (meters.money / 100) * 3) + youthBonus;
   const pool = REGIONS[region].youthPool;
+  const newYouth: Player[] = [];
   for (let i = 0; i < 4; i++) {
-    aged.push({
+    newYouth.push({
       name: pool[nameCounter.i++ % pool.length],
       age: 19,
       rating: Math.max(6, youthRating + (i === 0 ? 1 : 0)),
       foreign: false,
     });
   }
-  return aged;
+
+  // Top new youth (highest-rated, gets the +1 bonus) becomes the prospect.
+  if (newYouth.length > 0) newYouth[0].storyTag = "prospect";
+
+  // Oldest surviving local player becomes the veteran (if 32+).
+  const oldLocals = aged.filter((p) => !p.foreign && p.age >= 32);
+  if (oldLocals.length > 0) {
+    oldLocals.reduce((a, b) => (a.age >= b.age ? a : b)).storyTag = "veteran";
+  }
+
+  // Best local senior player who isn't already tagged becomes the captain.
+  const captainPool = aged.filter((p) => !p.foreign && !p.storyTag);
+  if (captainPool.length > 0) {
+    captainPool.reduce((a, b) => (a.rating >= b.rating ? a : b)).storyTag = "captain";
+  }
+
+  return [...aged, ...newYouth];
 }
 
 // Derive how the stadium should be drawn from accumulated decision flags and
@@ -215,6 +234,25 @@ export function applyModifiers(delta: Delta, tags: string[], founding: Founding)
 
 export function ruleNames(founding: Founding): string {
   return founding.rules.map((k) => RULES[k].name).join(", ");
+}
+
+export function cultureLabel(n: number): string {
+  if (n <= -30) return "Deep roots";
+  if (n <= -10) return "Community club";
+  if (n <= 10) return "The long middle";
+  if (n <= 30) return "Upwardly mobile";
+  return "Corporate drift";
+}
+
+// How a scene choice shifts the culture axis. Commercial/ownership moves right;
+// community-hold choices move left. Capped so no single scene swings it too far.
+export function cultureDelta(tags: string[]): number {
+  let d = 0;
+  for (const t of tags) {
+    if (t.endsWith("-hold")) d -= 8;
+    else if (["commercial", "outsider", "ownership", "move", "glamour"].includes(t)) d += 8;
+  }
+  return Math.max(-20, Math.min(20, d));
 }
 
 // A choice shows only if it has no cond, or its cond is true for this charter.
