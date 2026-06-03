@@ -110,10 +110,46 @@ export function useAudio() {
     m.gain.setTargetAtTime(onRef.current ? 0.55 : 0, ac.currentTime, 0.4);
   }
 
+  // A short one-shot flourish for big moments (a title, a won final). Plays an
+  // ascending major arpeggio over its own gain so it sounds regardless of
+  // whether the background music is on. "win" rises and resolves bright;
+  // "loss" is a short, flat two-note fall.
+  function sting(kind: "win" | "loss" = "win") {
+    if (!ctxRef.current) {
+      try {
+        ctxRef.current = new AudioContext();
+      } catch {
+        return;
+      }
+    }
+    const ac = ctxRef.current;
+    if (ac.state === "suspended") ac.resume().catch(() => {});
+    const t0 = ac.currentTime + 0.02;
+    const notes: [number, number][] =
+      kind === "win"
+        ? [[392.0, 0.0], [523.25, 0.1], [659.25, 0.2], [783.99, 0.3], [1046.5, 0.42]] // G4 C5 E5 G5 C6
+        : [[330.0, 0.0], [246.94, 0.16]]; // E4 -> B3, a small fall
+    const peak = kind === "win" ? 0.32 : 0.22;
+    for (const [freq, offset] of notes) {
+      const t = t0 + offset;
+      const osc = ac.createOscillator();
+      osc.type = kind === "win" ? "triangle" : "sine";
+      osc.frequency.value = freq;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(peak, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+      osc.connect(g);
+      g.connect(ac.destination);
+      osc.start(t);
+      osc.stop(t + 0.6);
+    }
+  }
+
   useEffect(() => () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     ctxRef.current?.close();
   }, []);
 
-  return { on, toggle };
+  return { on, toggle, sting };
 }

@@ -10,6 +10,7 @@ import { rollEvent, type EventCtx } from "@/lib/events";
 import { leagueTable, playerPosition, RIVALS } from "@/lib/rivals";
 import { ACHIEVEMENTS, recordRun, getUnlockedAchievements, type RunSummary } from "@/lib/progress";
 import { mulberry32, seedFromString, todaySeedString, seededFounding, seededScore } from "@/lib/seed";
+import { readSave, writeSave, clearSave, hasSave, type SaveGame } from "@/lib/savegame";
 import {
   MAX_RULES,
   clamp,
@@ -20,6 +21,7 @@ import {
   applyModifiers,
   ruleNames,
   visibleChoices,
+  previewChoice,
   computeEnding,
   moodFromForm,
   formDelta,
@@ -198,7 +200,87 @@ export default function Game() {
 
   const nameCounter = useRef({ i: 0 });
   const cardRef = useRef<HTMLDivElement>(null);
-  const { on: audioOn, toggle: toggleAudio } = useAudio();
+  const { on: audioOn, toggle: toggleAudio, sting } = useAudio();
+
+  // Whether a resumable save exists, checked once on mount for the boot screen.
+  const [resumable, setResumable] = useState(false);
+  useEffect(() => {
+    setResumable(hasSave());
+  }, []);
+
+  // Mid-run autosave: snapshot at the start of each scene, the one clean
+  // boundary with no in-flight season log or pending match. Seeded daily runs
+  // are never saved (single-sitting by design).
+  useEffect(() => {
+    if (phase !== "scene" || seeded || !founding.region) return;
+    const snap: SaveGame = {
+      version: 1,
+      savedAt: Date.now(),
+      founding,
+      meters,
+      squad,
+      trophies,
+      reach,
+      current,
+      charterBroken,
+      defiedBan,
+      unlockedTech: Array.from(unlockedTech),
+      rebuilt,
+      newStand,
+      movedOut,
+      corporate,
+      form,
+      managerKey,
+      managerTenure,
+      mgrContractLocked,
+      firedMgrEvts: Array.from(firedMgrEvts),
+      news,
+      culture,
+      charterWasBroken: charterWasBroken.current,
+      runLog,
+      bestPosition,
+      nameCounter: nameCounter.current.i,
+    };
+    writeSave(snap);
+    setResumable(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, current]);
+
+  // Restore a saved century and drop the player straight into its next scene.
+  function resumeSave() {
+    const s = readSave();
+    if (!s) return;
+    setFounding(s.founding);
+    setMeters(s.meters);
+    setSquad(s.squad);
+    setTrophies(s.trophies);
+    setReach(s.reach);
+    setCurrent(s.current);
+    setCharterBroken(s.charterBroken);
+    setDefiedBan(s.defiedBan);
+    flagRef.current.defiedBan = s.defiedBan;
+    setUnlockedTech(new Set(s.unlockedTech));
+    setRebuilt(s.rebuilt);
+    setNewStand(s.newStand);
+    setMovedOut(s.movedOut);
+    setCorporate(s.corporate);
+    setForm(s.form);
+    setManagerKey(s.managerKey);
+    setManagerTenure(s.managerTenure);
+    setMgrContractLocked(s.mgrContractLocked);
+    setFiredMgrEvts(new Set(s.firedMgrEvts));
+    setNews(s.news);
+    setCulture(s.culture);
+    charterWasBroken.current = s.charterWasBroken;
+    setRunLog(s.runLog);
+    setBestPosition(s.bestPosition);
+    nameCounter.current.i = s.nameCounter;
+    foundingRef.current = s.founding;
+    seedRng.current = Math.random;
+    setSeeded(false);
+    setSceneNote("");
+    setPhase("scene");
+  }
 
   // Scroll to the decision card for game phases, or back to the top for
   // full-screen phases (founding, manager, ending) so they're never hidden below
@@ -268,6 +350,8 @@ export default function Game() {
 
   // Start a seeded daily challenge: fixed founding, deterministic century.
   function startSeeded() {
+    clearSave();
+    setResumable(false);
     const seedStr = todaySeedString();
     const seed = seedFromString(seedStr);
     seedRng.current = mulberry32(seed);
@@ -297,6 +381,8 @@ export default function Game() {
   }
 
   function beginCentury() {
+    clearSave();
+    setResumable(false);
     const r = REGIONS[founding.region as string];
     const s = STORIES[founding.story as string];
     const rb = { money: 0, soul: 0, fans: 0 };
@@ -586,6 +672,9 @@ export default function Game() {
     };
     setEnding(end);
     setEarned(recordRun(summary));
+    // The century is over — there's nothing left to resume.
+    clearSave();
+    setResumable(false);
     setPhase("ending");
   }
 
@@ -603,7 +692,16 @@ export default function Game() {
 
     const r = playSeason(squad, manager?.oddsMod || 1, seedRng.current);
     const rew = seasonRewards(r, reach);
-    if (r.won) logEvent("Champions of the league.");
+    if (r.won) {
+      logEvent("Champions of the league.");
+      // The biggest beat in the game gets a real celebration.
+      setFlashText("CHAMPIONS!");
+      setTimeout(() => setFlashText(null), 1300);
+      sting("win");
+    } else if (r.chance < 0.1) {
+      // A wretched season lands with a small down-note.
+      sting("loss");
+    }
 
     // Work on local copies so the news event and end-of-era see fresh values.
     let nextMeters: Meters = {
@@ -676,6 +774,15 @@ export default function Game() {
     setForm(latestForm);
     setReach(nextReach);
     setMeters(nextMeters);
+
+    // Celebrate a won final; mark a lost one with a down-note.
+    if (success) {
+      setFlashText(m.rewardWin.trophy ? "TROPHY!" : "WON!");
+      setTimeout(() => setFlashText(null), 1300);
+      sting("win");
+    } else {
+      sting("loss");
+    }
 
     const totalForEra = scenes[current].seasons || 5;
     setSeasonLog((log) => [
@@ -767,7 +874,14 @@ export default function Game() {
     <div id="screen">
       {flashText && <div className="flash pix">{flashText}</div>}
 
-      {phase === "boot" && <BootScreen onStart={() => setPhase("founding")} onDaily={startSeeded} />}
+      {phase === "boot" && (
+        <BootScreen
+          onStart={() => setPhase("founding")}
+          onDaily={startSeeded}
+          onResume={resumeSave}
+          canResume={resumable}
+        />
+      )}
 
       {phase === "founding" && (
         <FoundingScreen step={foundingStep} founding={founding} onPick={pickFounding} onSeal={sealCharter} />
@@ -790,6 +904,7 @@ export default function Game() {
                 <div className="ch">
                   {visibleChoices(scene).map((o) => {
                     const noteText = typeof o.note === "function" ? o.note() : o.note || "";
+                    const d = previewChoice(o, meters, squad, founding);
                     return (
                       <button
                         key={o._idx}
@@ -798,6 +913,11 @@ export default function Game() {
                       >
                         {o.t}
                         <small>{noteText}</small>
+                        <span className="deltas">
+                          <MeterDelta label="Money" v={d.money || 0} />
+                          <MeterDelta label="Soul" v={d.soul || 0} />
+                          <MeterDelta label="Fans" v={d.fans || 0} />
+                        </span>
                       </button>
                     );
                   })}
@@ -898,7 +1018,31 @@ export default function Game() {
 // SUB-SCREENS
 // =====================================================================
 
-function BootScreen({ onStart, onDaily }: { onStart: () => void; onDaily: () => void }) {
+// A single meter's predicted swing on a choice button: arrows scaled to size.
+// Hidden when the swing is zero, so buttons only show what actually moves.
+function MeterDelta({ label, v }: { label: string; v: number }) {
+  if (!v) return null;
+  const up = v > 0;
+  const mag = Math.abs(v);
+  const arrows = mag >= 25 ? 3 : mag >= 12 ? 2 : 1;
+  return (
+    <span className={`md ${up ? "up" : "down"}`} title={`${label} ${up ? "+" : ""}${v}`}>
+      {label} {(up ? "▲" : "▼").repeat(arrows)}
+    </span>
+  );
+}
+
+function BootScreen({
+  onStart,
+  onDaily,
+  onResume,
+  canResume,
+}: {
+  onStart: () => void;
+  onDaily: () => void;
+  onResume: () => void;
+  canResume: boolean;
+}) {
   const unlocked = getUnlockedAchievements();
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
@@ -920,8 +1064,14 @@ function BootScreen({ onStart, onDaily }: { onStart: () => void; onDaily: () => 
         </p>
       </div>
       <div className="ch">
-        <button className="c seal" onClick={onStart}>
-          Found a club <span className="blink">▌</span>
+        {canResume && (
+          <button className="c seal" onClick={onResume}>
+            Continue your century <span className="blink">▌</span>
+            <small>Pick up the saved run where you left off.</small>
+          </button>
+        )}
+        <button className={canResume ? "c" : "c seal"} onClick={onStart}>
+          Found a club {!canResume && <span className="blink">▌</span>}
         </button>
         <button className="c" onClick={onDaily}>
           Daily challenge

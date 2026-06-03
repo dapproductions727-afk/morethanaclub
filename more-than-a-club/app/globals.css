@@ -372,6 +372,21 @@ button.c.seal { border-color: var(--gold); text-align: center; }
 button.c.chosen { border-color: var(--gold); background: #2a3b2d; }
 button.c:disabled { opacity: 0.4; cursor: default; }
 
+/* Predicted meter swings on a choice button. */
+button.c .deltas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 7px;
+}
+button.c .md {
+  font-family: var(--font-pixel), monospace;
+  font-size: 7px;
+  letter-spacing: 0.5px;
+}
+button.c .md.up { color: var(--green); }
+button.c .md.down { color: var(--red); }
+
 .fo {
   margin-top: 12px;
   font-size: 14px;

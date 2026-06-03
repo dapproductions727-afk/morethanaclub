@@ -9,6 +9,7 @@ import type {
   Choice,
   Mood,
   StadiumState,
+  RunContext,
 } from "./types";
 import { REGIONS } from "./regions";
 import { STORIES, RULES } from "./charter";
@@ -293,6 +294,42 @@ export function cultureDelta(tags: string[]): number {
 // A choice shows only if it has no cond, or its cond is true for this charter.
 export function visibleChoices(s: Scene): Choice[] {
   return s.ch.map((o, i) => ({ ...o, _idx: i })).filter((o) => !o.cond || o.cond());
+}
+
+// Preview the meter change a choice would make, WITHOUT mutating game state.
+// Runs the choice against throwaway copies of the current meters/squad, then
+// applies the same founding modifiers chooseOption() uses, so the arrows on the
+// buttons match exactly what the click will do. Squad/flag side-effects are
+// swallowed — we only care about the money/soul/fans delta here.
+export function previewChoice(
+  choice: Choice,
+  meters: Meters,
+  squad: Player[],
+  founding: Founding
+): Delta {
+  const before: Meters = { ...meters };
+  const workingMeters: Meters = { ...meters };
+  const workingSquad: Player[] = [...squad];
+  const ctx: RunContext = {
+    meters: workingMeters,
+    squad: workingSquad,
+    addPlayer: (p) => workingSquad.push(p),
+    removeBestLocal: () => {},
+    boostUnder: () => {},
+    setFlag: () => {},
+  };
+  try {
+    choice.run(ctx);
+  } catch {
+    // A choice's run() may touch squad helpers we stubbed; meters still resolve.
+  }
+  const delta: Meters = {
+    money: workingMeters.money - before.money,
+    soul: workingMeters.soul - before.soul,
+    fans: workingMeters.fans - before.fans,
+  };
+  applyModifiers(delta, choice.tags || [], founding);
+  return delta;
 }
 
 export interface EndingCopy {
