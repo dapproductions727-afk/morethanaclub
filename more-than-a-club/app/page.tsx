@@ -31,12 +31,69 @@ import {
 import Stadium from "@/components/Stadium";
 import { MetersBar, SquadPanel, ReachStrip, TechTimeline, MoodMeter, ManagerPanel, NewsTicker, LeagueTable, CultureStrip } from "@/components/Hud";
 
-type Phase = "boot" | "founding" | "summary" | "manager" | "scene" | "seasons" | "match" | "pressure" | "ending";
+type Phase = "boot" | "founding" | "summary" | "manager" | "scene" | "seasons" | "match" | "pressure" | "mgrEvent" | "ending";
 
 interface PressureEvent {
   kind: "fan_pressure" | "rival_interest";
   managerName: string;
 }
+
+interface MgrEraEventDef {
+  id: string;
+  once: boolean;
+  cond: (tenure: number, hasCaptain: boolean) => boolean;
+  sp: string;
+  getPr: (mgr: string, captain: string) => string;
+  ch0: string; note0: string;
+  ch1: string; note1: string;
+}
+
+interface PendingMgrEvt {
+  id: string;
+  managerName: string;
+  captainName: string;
+}
+
+// Manager relationship events — fire at era transitions, give the player
+// agency over the manager beyond just hire/fire.
+const MGR_ERA_EVENTS: MgrEraEventDef[] = [
+  {
+    id: "contract",
+    once: true,
+    cond: (tenure) => tenure === 2,
+    sp: "The agent's call",
+    getPr: (mgr) =>
+      `Two eras in, and ${mgr} has other clubs watching him. His agent has been in touch. Tie him down now with a long-term deal, or let the contract run its course.`,
+    ch0: "Offer him a long-term deal. Keep him here.",
+    note0: "Costs money. He's yours for the foreseeable.",
+    ch1: "Let it run. Keep your options open.",
+    note1: "Free. But the door stays ajar.",
+  },
+  {
+    id: "tactics",
+    once: false,
+    cond: (tenure) => tenure >= 2,
+    sp: "The pre-season",
+    getPr: (mgr) =>
+      `${mgr} wants to overhaul the system over the summer. New shape, new pressing game. The players will find it brutal at first. He thinks it changes everything.`,
+    ch0: "Back him. Let him rebuild it.",
+    note0: "Costs money and short-term disruption. The vision is his.",
+    ch1: "Hold the current shape. Too much, too soon.",
+    note1: "The squad settles. The manager is frustrated.",
+  },
+  {
+    id: "fallout",
+    once: false,
+    cond: (tenure, hasCaptain) => tenure >= 1 && hasCaptain,
+    sp: "The dressing room",
+    getPr: (mgr, captain) =>
+      `There has been a falling-out between ${mgr} and ${captain}. The manager says he cannot work with him. ${captain} says ${mgr} has lost the dressing room. You have to choose a side.`,
+    ch0: "Back the manager. He runs the team.",
+    note0: "The captain is dropped. The fans aren't happy.",
+    ch1: "Side with the captain. The players come first.",
+    note1: "The manager is undermined. Soul holds. Results may not.",
+  },
+];
 
 const foundingFlow = [
   {
@@ -107,6 +164,11 @@ export default function Game() {
   // Manager pressure event waiting for player decision.
   const [pendingPressure, setPendingPressure] = useState<PressureEvent | null>(null);
 
+  // Manager era events — periodic relationship decisions.
+  const [pendingMgrEvt, setPendingMgrEvt] = useState<PendingMgrEvt | null>(null);
+  const [firedMgrEvts, setFiredMgrEvts] = useState<Set<string>>(new Set());
+  const [mgrContractLocked, setMgrContractLocked] = useState(false);
+
   // Replayability: run history, league position, seeded mode.
   const [runLog, setRunLog] = useState<{ year: string; text: string }[]>([]);
   const [bestPosition, setBestPosition] = useState(4);
@@ -140,7 +202,7 @@ export default function Game() {
   // full-screen phases (founding, manager, ending) so they're never hidden below
   // a previously scrolled viewport.
   useEffect(() => {
-    if (phase === "seasons" || phase === "scene" || phase === "pressure") {
+    if (phase === "seasons" || phase === "scene" || phase === "pressure" || phase === "mgrEvent") {
       cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } else {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -256,6 +318,7 @@ export default function Game() {
   function hireManager(key: string) {
     setManagerKey(key);
     setManagerTenure(0);
+    setMgrContractLocked(false);
     // New manager starts fresh — don't fire resignation based on old charter state.
     charterWasBroken.current = charterBroken;
     setNews((n) => [...n, `APPOINTED: ${managerByKey(key)?.name} takes the dugout.`]);
@@ -410,7 +473,8 @@ export default function Game() {
       }
 
       // Background departure: a quieter risk even in ordinary eras.
-      if (newTenure >= 3) {
+      // Skipped if the player has signed the manager to a long-term contract.
+      if (newTenure >= 3 && !mgrContractLocked) {
         const chance = Math.min(0.12, 0.04 + (manager.oddsMod - 1) * 0.4);
         if (seedRng.current() < chance) {
           setNews((n) => [...n, `MANAGER LEAVES: ${manager.name} departs for bigger things.`]);
@@ -419,6 +483,20 @@ export default function Game() {
           setPhase("manager");
           return;
         }
+      }
+
+      // Manager era event — a periodic decision about the ongoing relationship.
+      const captainName = aged.find((p) => p.storyTag === "captain")?.name ?? "";
+      const eligible = MGR_ERA_EVENTS.filter(
+        (ev) => !(ev.once && firedMgrEvts.has(ev.id)) && ev.cond(newTenure, !!captainName)
+      );
+      if (eligible.length > 0 && seedRng.current() < 0.5) {
+        const chosen = eligible[Math.floor(seedRng.current() * eligible.length)];
+        setFiredMgrEvts((s) => new Set([...s, chosen.id]));
+        setPendingMgrEvt({ id: chosen.id, managerName: manager.name, captainName });
+        charterWasBroken.current = charterBroken;
+        setPhase("mgrEvent");
+        return;
       }
     }
 
@@ -452,6 +530,37 @@ export default function Game() {
         setPhase("scene");
       }
     }
+  }
+
+  function resolveMgrEvent(choice: 0 | 1) {
+    const ev = pendingMgrEvt!;
+    setPendingMgrEvt(null);
+    if (ev.id === "contract") {
+      if (choice === 0) {
+        setMeters((m) => ({ ...m, money: clamp(m.money - 10) }));
+        setMgrContractLocked(true);
+        setNews((n) => [...n, `CONTRACT: ${ev.managerName} signs a long-term deal.`]);
+      } else {
+        setNews((n) => [...n, `${ev.managerName} enters the final stretch of his contract.`]);
+      }
+    } else if (ev.id === "tactics") {
+      if (choice === 0) {
+        setMeters((m) => ({ ...m, money: clamp(m.money - 6), soul: clamp(m.soul + 5), fans: clamp(m.fans - 4) }));
+        setNews((n) => [...n, `TACTICS: ${ev.managerName} introduces the new system.`]);
+      } else {
+        setMeters((m) => ({ ...m, soul: clamp(m.soul - 3), fans: clamp(m.fans + 4) }));
+        setNews((n) => [...n, `${ev.managerName} keeps the current shape. Not everyone agrees.`]);
+      }
+    } else if (ev.id === "fallout") {
+      if (choice === 0) {
+        setMeters((m) => ({ ...m, fans: clamp(m.fans - 10), soul: clamp(m.soul - 3) }));
+        setNews((n) => [...n, `${ev.managerName} drops ${ev.captainName} from the squad.`]);
+      } else {
+        setMeters((m) => ({ ...m, fans: clamp(m.fans + 8), soul: clamp(m.soul + 5) }));
+        setNews((n) => [...n, `${ev.captainName} leads the side out. ${ev.managerName} is not pleased.`]);
+      }
+    }
+    setPhase("scene");
   }
 
   // Compute the ending copy, record achievements, then show the ending screen.
@@ -741,6 +850,15 @@ export default function Game() {
           {hudGame}
           <div ref={cardRef}>
             <PressureCard event={pendingPressure} onResolve={resolvePressure} />
+          </div>
+        </>
+      )}
+
+      {phase === "mgrEvent" && pendingMgrEvt && (
+        <>
+          {hudGame}
+          <div ref={cardRef}>
+            <ManagerEventCard event={pendingMgrEvt} onResolve={resolveMgrEvent} />
           </div>
         </>
       )}
@@ -1250,6 +1368,33 @@ function PressureCard({
         <button className="c" onClick={() => onResolve(true)}>
           Wish him well. Take the compensation.
           <small>He goes. A little money comes back. Back to the dugout.</small>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ManagerEventCard({
+  event,
+  onResolve,
+}: {
+  event: PendingMgrEvt;
+  onResolve: (choice: 0 | 1) => void;
+}) {
+  const def = MGR_ERA_EVENTS.find((e) => e.id === event.id)!;
+  const pr = def.getPr(event.managerName, event.captainName);
+  return (
+    <div className="card">
+      <div className="sp">{def.sp}</div>
+      <div className="pr">{pr}</div>
+      <div className="ch">
+        <button className="c" onClick={() => onResolve(0)}>
+          {def.ch0}
+          <small>{def.note0}</small>
+        </button>
+        <button className="c" onClick={() => onResolve(1)}>
+          {def.ch1}
+          <small>{def.note1}</small>
         </button>
       </div>
     </div>
