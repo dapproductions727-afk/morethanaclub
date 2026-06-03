@@ -29,6 +29,7 @@ import {
   cultureDelta,
 } from "@/lib/engine";
 import Stadium from "@/components/Stadium";
+import { useAudio } from "@/lib/useAudio";
 import { MetersBar, SquadPanel, ReachStrip, TechTimeline, MoodMeter, ManagerPanel, NewsTicker, LeagueTable, CultureStrip } from "@/components/Hud";
 
 type Phase = "boot" | "founding" | "summary" | "manager" | "scene" | "seasons" | "match" | "pressure" | "mgrEvent" | "ending";
@@ -197,6 +198,7 @@ export default function Game() {
 
   const nameCounter = useRef({ i: 0 });
   const cardRef = useRef<HTMLDivElement>(null);
+  const { on: audioOn, toggle: toggleAudio } = useAudio();
 
   // Scroll to the decision card for game phases, or back to the top for
   // full-screen phases (founding, manager, ending) so they're never hidden below
@@ -731,6 +733,9 @@ export default function Game() {
       <header className="hud">
         <h1 className="pix">MORE THAN A CLUB</h1>
         <div className="year">{yearLine}</div>
+        <button className={`audio-btn${audioOn ? " on" : ""}`} onClick={toggleAudio} title="Toggle music">
+          {audioOn ? "♫" : "♪"}
+        </button>
       </header>
       <Stadium
         material={stadium.material}

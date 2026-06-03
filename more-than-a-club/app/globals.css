@@ -529,6 +529,44 @@ button.nx:active { transform: translate(3px, 3px); box-shadow: 0 0 0 0 #000; }
 }
 .history .histtext { flex: 1; color: var(--ink); }
 
+/* ---------- Stadium animations ---------- */
+@keyframes stad-breathe {
+  0%, 100% { filter: brightness(1); }
+  50%       { filter: brightness(1.04); }
+}
+@keyframes stad-lit {
+  0%, 100% { filter: brightness(1) saturate(1); }
+  40%      { filter: brightness(1.09) saturate(1.15); }
+  70%      { filter: brightness(1.02) saturate(1); }
+}
+@keyframes stad-angry {
+  0%, 100% { filter: brightness(0.94); }
+  50%      { filter: brightness(1.0); }
+}
+@keyframes stad-ecstatic {
+  0%, 100% { filter: brightness(1.02); }
+  50%      { filter: brightness(1.10) saturate(1.2); }
+}
+.stad-day      { animation: stad-breathe  5s ease-in-out infinite; }
+.stad-night    { animation: stad-breathe  7s ease-in-out infinite; }
+.stad-lit      { animation: stad-lit      2s ease-in-out infinite; }
+.stad-furious  { animation: stad-angry    2.5s ease-in-out infinite; }
+.stad-ecstatic { animation: stad-ecstatic 1.4s ease-in-out infinite; }
+
+/* ---------- Audio toggle ---------- */
+.audio-btn {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-family: var(--font-mono), monospace;
+  line-height: 1;
+  border-radius: 2px;
+}
+.audio-btn.on { color: var(--amber); border-color: var(--amber); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::after { animation: none !important; transition: none !important; }
 }
