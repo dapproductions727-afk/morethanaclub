@@ -11,6 +11,36 @@ import type { Scene, BigMatch } from "./types";
 
 export const scenes: Scene[] = [
   {
+    sp: "The centre-forward",
+    year: "{PLACE} · 1906",
+    seasons: 4,
+    pr: "The Football League has fixed wages at four pounds a week — an honest working wage, they say. Your best player earns the same as the worst man in the division. A wealthy First Division club to the south has come for him. The fee alone would change your decade.",
+    ch: [
+      {
+        t: "Sell him. The fee builds something lasting.",
+        note: "The money comes in. The crowd takes a long time to forgive.",
+        tags: ["commercial"],
+        run: (c) => {
+          c.meters.money += 18;
+          c.meters.fans -= 12;
+          c.meters.soul -= 5;
+          c.removeBestLocal();
+        },
+      },
+      {
+        t: "Hold him. Some things aren't for sale.",
+        note: "He stays. The money doesn't. The crowd remembers.",
+        tags: [],
+        run: (c) => {
+          c.meters.money -= 8;
+          c.meters.soul += 15;
+          c.meters.fans += 10;
+        },
+      },
+    ],
+  },
+
+  {
     sp: "The war office",
     year: "{PLACE} · 1914",
     seasons: 3,

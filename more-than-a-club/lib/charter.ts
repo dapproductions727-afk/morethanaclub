@@ -44,6 +44,21 @@ export const STORIES: Record<string, Story> = {
       if (tags.includes("ownership") && (d.soul ?? 0) < 0) d.soul = Math.round((d.soul as number) * 1.3);
     },
   },
+  benefactor: {
+    name: "The benefactor's club",
+    flavor: "One man's fortune, one man's vision. He wanted trophies above everything else. Built to win, and built to keep winning for as long as the money held.",
+    bonus: { money: 20 },
+    mod: (d, tags) => {
+      // Commercial ambition and big signings were always the plan — they sting the soul less.
+      if ((tags.includes("outsider") || tags.includes("commercial")) && (d.soul ?? 0) < 0) {
+        d.soul = Math.round((d.soul as number) * 0.55);
+      }
+      // Without community roots, selling control or moving hits the fans harder.
+      if ((tags.includes("move") || tags.includes("ownership")) && (d.fans ?? 0) < 0) {
+        d.fans = Math.round((d.fans as number) * 1.35);
+      }
+    },
+  },
 };
 
 // Charter rules: up to three sworn into the founding document. Each grants a

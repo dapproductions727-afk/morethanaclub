@@ -136,10 +136,14 @@ export default function Game() {
   const nameCounter = useRef({ i: 0 });
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // Scroll the decision card into view whenever a new phase begins that needs it.
+  // Scroll to the decision card for game phases, or back to the top for
+  // full-screen phases (founding, manager, ending) so they're never hidden below
+  // a previously scrolled viewport.
   useEffect(() => {
     if (phase === "seasons" || phase === "scene" || phase === "pressure") {
       cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, [phase]);
   const place = founding.region ? REGIONS[founding.region].place : "";
