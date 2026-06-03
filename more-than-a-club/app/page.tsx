@@ -134,6 +134,14 @@ export default function Game() {
   }, []);
 
   const nameCounter = useRef({ i: 0 });
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Scroll the decision card into view whenever a new phase begins that needs it.
+  useEffect(() => {
+    if (phase === "seasons" || phase === "scene" || phase === "pressure") {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [phase]);
   const place = founding.region ? REGIONS[founding.region].place : "";
   const manager = managerByKey(managerKey);
   const mood: Mood = moodFromForm(form);
@@ -654,7 +662,7 @@ export default function Game() {
       {(phase === "scene" || phase === "seasons") && scene && (
         <>
           {hudGame}
-          <div className="card">
+          <div className="card" ref={cardRef}>
             <div className="sp">{sceneTitle}</div>
             {phase === "scene" && (
               <>
@@ -727,7 +735,9 @@ export default function Game() {
       {phase === "pressure" && pendingPressure && (
         <>
           {hudGame}
-          <PressureCard event={pendingPressure} onResolve={resolvePressure} />
+          <div ref={cardRef}>
+            <PressureCard event={pendingPressure} onResolve={resolvePressure} />
+          </div>
         </>
       )}
 
