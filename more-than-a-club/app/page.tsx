@@ -1193,12 +1193,41 @@ function ManagerScreen({ onHire }: { onHire: (key: string) => void }) {
   );
 }
 
-// Tap-to-play match moment: a moving bar; tap near the sweet spot for quality.
-// A juiced-up tap-to-shoot moment. A pixel goal with a keeper; a marker sweeps
-// across the goalmouth; tap to shoot at whatever third the marker is over. The
-// keeper dives somewhere, and you score if you placed it away from the dive and
-// timed it cleanly. Sweet-spot width and bar speed scale with squad/manager and
-// the era, so your boardroom choices make the moment easier or harder.
+// Each match KIND maps to a play variant and an intensity. The variant changes
+// what skill the moment demands; intensity (0..1) tightens the window and the
+// keeper's reach for the bigger occasions. This is what makes a relegation
+// decider feel different from a friendly while reusing one engine.
+type MatchVariant = "standard" | "feint" | "power";
+function matchProfile(kind: string): { variant: MatchVariant; intensity: number; label: string } {
+  switch (kind) {
+    case "Floodlit friendly":
+      return { variant: "standard", intensity: 0.0, label: "Pick your spot." };
+    case "Cup final":
+      return { variant: "standard", intensity: 0.35, label: "Pick your spot — and hold your nerve." };
+    case "Promotion decider":
+      return { variant: "feint", intensity: 0.4, label: "The keeper leans early — he'll dive the OTHER way. Aim where he leaned." };
+    case "The derby":
+      return { variant: "feint", intensity: 0.6, label: "He leans to bait you, then dives opposite. Shoot toward his lean." };
+    case "Relegation decider":
+      return { variant: "power", intensity: 0.7, label: "Power, then placement. Two clean taps." };
+    case "European night":
+      return { variant: "power", intensity: 0.8, label: "Power, then placement. The continent is watching." };
+    case "Title decider":
+      return { variant: "power", intensity: 1.0, label: "Power, then placement. Everything rides on this." };
+    default:
+      return { variant: "standard", intensity: 0.3, label: "Pick your spot." };
+  }
+}
+
+// Tap-to-play match moment. A pixel goal with a keeper; an aim line sweeps the
+// goalmouth and you tap to place the ball away from the keeper's dive. Three
+// variants layer on top of that core, chosen by the match kind:
+//   standard — sweep and place (the original).
+//   feint    — the keeper shows a fake dive during aim, then commits at the
+//              shot; you must aim away from the REAL dive, not the bluff.
+//   power    — first tap sets power on a sweeping bar (too soft = easy save,
+//              too hard = the shot sprays off the deliberate spot), second tap
+//              is the placement. Two clean inputs for the highest stakes.
 function MatchMoment({
   match,
   baseOdds,
@@ -1212,25 +1241,37 @@ function MatchMoment({
   sweetHalfWidth: number; // half-width of the good zone in %, wider = easier
   onResolve: (success: boolean) => void;
 }) {
-  const [pos, setPos] = useState(0); // 0..100 marker position
+  const profile = matchProfile(match.kind);
+  // Intensity speeds the sweep and shrinks both the timing window and the
+  // forgiving margin of the keeper's reach.
+  const aimSpeed = speed * (1 + profile.intensity * 0.6);
+  const effSweet = Math.max(4, sweetHalfWidth - profile.intensity * 4);
+
+  // stage: which input we're collecting. power matches collect power first.
+  const [stage, setStage] = useState<"power" | "aim">(profile.variant === "power" ? "power" : "aim");
+  const [pos, setPos] = useState(0); // 0..100 sweeping marker (aim line, or power bar in power stage)
+  const [power, setPower] = useState<number | null>(null); // locked power 0..100
   const [phase, setPhase] = useState<"aim" | "shot" | "result">("aim");
+  const [feintX, setFeintX] = useState<number | null>(null); // the keeper's fake-dive cue
   const [result, setResult] = useState<{ success: boolean; ballX: number; keeperX: number } | null>(null);
   const raf = useRef<number | null>(null);
 
+  // The keeper's fake dive for feint matches: shown during aim, NOT where he
+  // actually goes. Re-rolled each mount so it can't be memorised.
+  useEffect(() => {
+    if (profile.variant === "feint") setFeintX(20 + Math.floor(Math.random() * 3) * 30);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The sweeping bar drives both the power stage and the aim stage.
   useEffect(() => {
     if (phase !== "aim") return;
     let p = 0;
     let d = 1;
     const tick = () => {
-      p += d * speed;
-      if (p >= 100) {
-        p = 100;
-        d = -1;
-      }
-      if (p <= 0) {
-        p = 0;
-        d = 1;
-      }
+      p += d * aimSpeed;
+      if (p >= 100) { p = 100; d = -1; }
+      if (p <= 0) { p = 0; d = 1; }
       setPos(p);
       raf.current = requestAnimationFrame(tick);
     };
@@ -1238,61 +1279,81 @@ function MatchMoment({
     return () => {
       if (raf.current) cancelAnimationFrame(raf.current);
     };
-  }, [phase, speed]);
+  }, [phase, stage, aimSpeed]);
+
+  function tap() {
+    if (phase !== "aim") return;
+    // Power stage: first tap locks power, then the bar restarts for aim.
+    if (stage === "power") {
+      if (raf.current) cancelAnimationFrame(raf.current);
+      setPower(pos);
+      setPos(0);
+      setStage("aim");
+      return;
+    }
+    shoot();
+  }
 
   function shoot() {
-    if (phase !== "aim") return;
     if (raf.current) cancelAnimationFrame(raf.current);
     setPhase("shot");
 
-    // One coherent model that matches what the player sees:
-    //  - You stop the sweeping aim line at `pos` (0..100 across the goal).
-    //  - The keeper commits to one third and dives there.
-    //  - You score by placing the ball away from the keeper's dive.
-    //  - "Clean strike" = you stopped the line near a deliberate spot (a corner
-    //    or the centre), rather than catching it mid-sweep. Clean timing lets
-    //    you commit confidently; sloppy timing wobbles the placement.
-    //
-    // The keeper reaches a band around where they dove. The width of that band
-    // is what difficulty tunes: a clean shot placed outside the band is a goal,
-    // a shot into the band is saved, and only genuinely marginal shots fall to
-    // squad strength.
-
-    // Nearest deliberate target (corner or centre) and how cleanly we hit it.
+    // Core model (unchanged): you stop the aim line at `pos`; the keeper commits
+    // to a third; you score by placing away from the dive with a clean strike.
     const targets = [10, 50, 90];
-    const nearestTarget = targets.reduce((a, b) =>
-      Math.abs(b - pos) < Math.abs(a - pos) ? b : a
-    );
-    const aimError = Math.abs(pos - nearestTarget);
-    // sweetHalfWidth scales the timing window: inside it = a committed, clean strike.
-    const cleanStrike = aimError <= sweetHalfWidth;
-    // Sloppy timing pushes the ball toward the middle of the goal (toward the keeper-friendly zone).
-    const placedPos = cleanStrike
-      ? pos
-      : pos + (50 - pos) * Math.min(1, (aimError - sweetHalfWidth) / 25);
+    const nearestTarget = targets.reduce((a, b) => (Math.abs(b - pos) < Math.abs(a - pos) ? b : a));
+    let aimError = Math.abs(pos - nearestTarget);
 
-    // Keeper dives to one of three thirds. A stronger squad earns a keeper that
-    // guesses your side slightly less often (better penalty taker draws the dive away).
-    const keeperGuess = 20 + Math.floor(Math.random() * 3) * 30; // 20, 50, 80
-    // Reach band: balanced difficulty. Keeper saves anything within ~18 of the dive.
-    const reachBand = 18;
+    // POWER variant: power away from a good "sweet" band (centre of the bar)
+    // sprays the shot. Too soft also lets the keeper reach further. We fold the
+    // power error into the aim error so a bad power tap genuinely costs accuracy.
+    let powerPenalty = 0; // extra reach the keeper gets when the shot is soft
+    if (profile.variant === "power") {
+      const pw = power ?? 50;
+      const powerErr = Math.abs(pw - 70); // ideal power ~70: firm but controlled
+      aimError += powerErr * 0.4; // hard/soft mishits drift off the spot
+      if (pw < 45) powerPenalty = (45 - pw) * 0.4; // a soft shot is easier to save
+    }
+
+    const cleanStrike = aimError <= effSweet;
+    const placedPos = cleanStrike ? pos : pos + (50 - pos) * Math.min(1, (aimError - effSweet) / 25);
+
+    // The keeper picks a third to dive to. We weight CENTRE so that lazily
+    // rolling the ball down the middle isn't a free goal — a keeper who holds
+    // his ground saves it. Corners are the safer placement.
+    function rollKeeper(): number {
+      const r = Math.random();
+      if (r < 0.42) return 50; // stays central most often
+      return r < 0.71 ? 20 : 80; // else commits to a corner
+    }
+
+    // FEINT variant: the keeper LEANS one way as a fake, then dives the OTHER
+    // way — so the side he faked toward is the side he's vacating. The skill is
+    // to aim toward the feint, not away from it. Occasionally he double-bluffs
+    // and goes where he leaned.
+    let keeperGuess: number;
+    if (profile.variant === "feint" && feintX != null) {
+      const realDive = feintX <= 50 ? 80 : 20; // dives opposite his lean
+      // 72% he dives opposite the feint (so the feint side is open); 28% double-bluff.
+      keeperGuess = Math.random() < 0.72 ? realDive : feintX;
+    } else {
+      keeperGuess = rollKeeper();
+    }
+
+    // Reach band tightens with intensity; soft power widens it.
+    const reachBand = 18 - profile.intensity * 3 + powerPenalty;
     const distFromKeeper = Math.abs(keeperGuess - placedPos);
 
     let success: boolean;
     if (distFromKeeper >= reachBand && cleanStrike) {
-      // Well placed away from the dive, struck cleanly: goal.
       success = true;
     } else if (distFromKeeper < reachBand - 4) {
-      // Hit right where the keeper went: saved.
       success = false;
     } else {
-      // Marginal — clipped the edge of the reach, or placed well but timed poorly.
-      // Resolve with squad strength plus a bonus for how far from the keeper it landed.
       const placement = Math.min(1, distFromKeeper / 50);
       success = Math.random() < Math.min(0.95, baseOdds * 0.6 + placement * 0.5);
     }
 
-    // Animate: ball flies to where it was actually placed, keeper dives to guess.
     setResult({ success, ballX: placedPos, keeperX: keeperGuess });
     setTimeout(() => setPhase("result"), 650);
     setTimeout(() => onResolve(success), 1700);
@@ -1335,10 +1396,10 @@ function MatchMoment({
     const goalLeft = gx + 4;
     const goalSpan = gw - 8;
     const markerX = goalLeft + (pos / 100) * goalSpan;
-    // sweet zone shading (centre)
-    const sweetL = goalLeft + ((50 - sweetHalfWidth) / 100) * goalSpan;
-    const sweetW = (sweetHalfWidth * 2 / 100) * goalSpan;
-    if (phase === "aim") rect(Math.round(sweetL), gy + gh - 3, Math.round(sweetW), 2, "#6fd06a", 0.5);
+    // sweet zone shading (centre) — only meaningful in the aim stage.
+    const sweetL = goalLeft + ((50 - effSweet) / 100) * goalSpan;
+    const sweetW = (effSweet * 2 / 100) * goalSpan;
+    if (phase === "aim" && stage === "aim") rect(Math.round(sweetL), gy + gh - 3, Math.round(sweetW), 2, "#6fd06a", 0.5);
 
     // keeper
     const kx = result ? goalLeft + (result.keeperX / 100) * goalSpan : gx + gw / 2 - 3;
@@ -1349,18 +1410,40 @@ function MatchMoment({
       rect(Math.round(kx) - 2, ky + 6, 8, 2, "#e0a93a");
       rect(Math.round(kx), ky + 3, 3, 4, "#e0a93a");
       rect(Math.round(kx), ky + 1, 2, 2, "#f0d0c0");
+    } else if (phase === "aim" && stage === "aim" && feintX != null) {
+      // FEINT: the keeper leans toward his fake side during the aim stage.
+      const fkx = goalLeft + (feintX / 100) * goalSpan;
+      rect(Math.round(fkx), ky, 3, 6, "#e0a93a");
+      rect(Math.round(fkx), ky - 2, 2, 2, "#f0d0c0");
+      rect(Math.round(fkx) + (feintX <= 50 ? -2 : 2), ky + 1, 4, 1, "#e0a93a"); // leaning arm
     } else {
       rect(Math.round(kx), ky, 3, 6, "#e0a93a");
       rect(Math.round(kx), ky - 2, 2, 2, "#f0d0c0");
       rect(Math.round(kx) - 1, ky + 1, 5, 1, "#e0a93a"); // arms out
     }
 
+    // POWER STAGE: a vertical power meter on the left, filling with the sweep.
+    if (phase === "aim" && stage === "power") {
+      const meterX = 4;
+      const meterTop = gy;
+      const meterH = gh;
+      rect(meterX, meterTop, 4, meterH, "#0a0d09"); // track
+      // ideal band (~70% power) highlighted green
+      const idealY = meterTop + Math.round(meterH * (1 - 0.78));
+      const idealH = Math.round(meterH * 0.22);
+      rect(meterX, idealY, 4, idealH, "#6fd06a", 0.5);
+      const fillH = Math.round((pos / 100) * meterH);
+      rect(meterX, meterTop + meterH - fillH, 4, fillH, "#f2c14e");
+    }
+
     // ball: at the spot (penalty mark) while aiming, flying to target on shot
     if (phase === "aim") {
       rect(gx + gw / 2 - 1, 54, 2, 2, "#f4f4f0");
-      // aim marker line
-      rect(Math.round(markerX), gy + 2, 1, gh - 2, "#f2c14e", 0.9);
-      rect(Math.round(markerX) - 1, gy + gh - 2, 3, 2, "#f2c14e");
+      // aim marker line — only during the aim stage (power stage uses the meter)
+      if (stage === "aim") {
+        rect(Math.round(markerX), gy + 2, 1, gh - 2, "#f2c14e", 0.9);
+        rect(Math.round(markerX) - 1, gy + gh - 2, 3, 2, "#f2c14e");
+      }
     } else if (result) {
       const bx = goalLeft + (result.ballX / 100) * goalSpan;
       const by = result.success ? gy + 6 : ky + 1;
@@ -1375,11 +1458,19 @@ function MatchMoment({
   // the button, the whole card) stops the sweeping marker and shoots in one
   // action — so you watch the goal and tap when the aim line is where you want,
   // no reaching for a separate button.
+  const promptText =
+    stage === "power"
+      ? "POWER: tap when the meter hits the green band."
+      : profile.variant === "feint"
+      ? profile.label
+      : "The aim line sweeps the goal. Tap where you want the ball.";
+  const buttonText = stage === "power" ? "TAP TO SET POWER ▶" : "TAP ANYWHERE TO SHOOT ▶";
+
   return (
     <div
       className="card matchcard"
       style={{ cursor: phase === "aim" ? "pointer" : "default", userSelect: "none" }}
-      onClick={shoot}
+      onClick={tap}
     >
       <div className="sp">{match.kind}</div>
       <div className="pr" style={{ flex: "none", marginBottom: 8 }}>
@@ -1387,7 +1478,7 @@ function MatchMoment({
       </div>
       {phase === "aim" && (
         <div className="matchprompt pix" style={{ marginBottom: 6 }}>
-          The aim line sweeps across the goal. Tap when it&apos;s where you want the ball.
+          {promptText}
         </div>
       )}
       <div
@@ -1403,7 +1494,7 @@ function MatchMoment({
         </div>
       ) : phase === "aim" ? (
         <button className="nx" style={{ pointerEvents: "none" }}>
-          TAP ANYWHERE TO SHOOT ▶
+          {buttonText}
         </button>
       ) : (
         <div className="matchprompt pix">…</div>
