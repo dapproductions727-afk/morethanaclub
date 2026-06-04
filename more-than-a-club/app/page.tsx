@@ -7,10 +7,8 @@ import { STORIES, RULES } from "@/lib/charter";
 import { scenes, bindSceneHooks } from "@/lib/scenes";
 import { MANAGERS, managerByKey } from "@/lib/managers";
 import { rollEvent, type EventCtx } from "@/lib/events";
-import { leagueTable, playerPosition, dynastyRival, type Rival } from "@/lib/rivals";
-import { ACHIEVEMENTS, UNLOCKS, recordRun, getUnlockedAchievements, readLastRun, writeLastRun, nextUnlock, lockedContent, type RunSummary } from "@/lib/progress";
-import { deriveInheritance, type Inheritance } from "@/lib/dynasty";
-import { appendClub, readClubs, type ClubRecord } from "@/lib/dynastyHistory";
+import { leagueTable, playerPosition, RIVALS } from "@/lib/rivals";
+import { ACHIEVEMENTS, recordRun, getUnlockedAchievements, type RunSummary } from "@/lib/progress";
 import { mulberry32, seedFromString, todaySeedString, seededFounding, seededScore } from "@/lib/seed";
 import { readSave, writeSave, clearSave, hasSave, type SaveGame } from "@/lib/savegame";
 import {
@@ -174,13 +172,6 @@ export default function Game() {
   const [firedMgrEvts, setFiredMgrEvts] = useState<Set<string>>(new Set());
   const [mgrContractLocked, setMgrContractLocked] = useState(false);
 
-  // Dynasty: inheritance from the previous run, the dynastic rival, and the clubs wall.
-  const [inheritance, setInheritance] = useState<Inheritance | null>(null);
-  const [dynastyRivalObj, setDynastyRivalObj] = useState<Rival | null>(null);
-  const [clubs, setClubs] = useState<ClubRecord[]>([]);
-  const [showClubsWall, setShowClubsWall] = useState(false);
-  useEffect(() => { setClubs(readClubs()); }, []);
-
   // Replayability: run history, league position, seeded mode.
   const [runLog, setRunLog] = useState<{ year: string; text: string }[]>([]);
   const [bestPosition, setBestPosition] = useState(4);
@@ -311,9 +302,8 @@ export default function Game() {
     ? clamp(Math.round(meters.fans * 0.2))
     : clamp(Math.round(meters.fans * 0.6 + meters.soul * 0.4));
   const stadium = deriveStadium({ era: current, rebuilt, newStand, movedOut, corporate, lights: lightsOn, radio: radioOn, tv: tvOn });
-  const extraRivals = dynastyRivalObj ? [dynastyRivalObj] : [];
-  const leaguePos = playerPosition(strength(squad), current, extraRivals);
-  const table = leagueTable(clubName, strength(squad), current, extraRivals);
+  const leaguePos = playerPosition(strength(squad), current);
+  const table = leagueTable(clubName, strength(squad), current);
 
   // Track best league finish reached across the run.
   useEffect(() => {
@@ -359,8 +349,6 @@ export default function Game() {
   }
 
   // Start a seeded daily challenge: fixed founding, deterministic century.
-  // Dynasty inheritance does NOT apply to seeded runs — the daily must be
-  // identical for everyone. We still append the club to the wall when it ends.
   function startSeeded() {
     clearSave();
     setResumable(false);
@@ -368,8 +356,6 @@ export default function Game() {
     const seed = seedFromString(seedStr);
     seedRng.current = mulberry32(seed);
     setSeeded(true);
-    setInheritance(null);
-    setDynastyRivalObj(null);
     const f = seededFounding(seed);
     setFounding(f);
     // Jump straight past the founding screens with the seeded club.
@@ -406,17 +392,11 @@ export default function Game() {
       rb.soul += b.soul || 0;
       rb.fans += b.fans || 0;
     });
-    const inh = deriveInheritance(readLastRun());
-    setInheritance(inh);
-    const bump = inh?.startBump ?? {};
     setMeters({
-      money: clamp(r.start.money + (s.bonus.money || 0) + rb.money + (bump.money || 0)),
-      soul: clamp(r.start.soul + (s.bonus.soul || 0) + rb.soul + (bump.soul || 0)),
-      fans: clamp(r.start.fans + (s.bonus.fans || 0) + rb.fans + (bump.fans || 0)),
+      money: clamp(r.start.money + (s.bonus.money || 0) + rb.money),
+      soul: clamp(r.start.soul + (s.bonus.soul || 0) + rb.soul),
+      fans: clamp(r.start.fans + (s.bonus.fans || 0) + rb.fans),
     });
-    if (inh) {
-      setDynastyRivalObj(dynastyRival({ archetype: inh.rivalArchetype, rivalName: inh.rivalName, rivalArc: inh.rivalArc, rivalBlurb: inh.rivalBlurb }));
-    }
     setSquad(r.squad.map((p) => ({ ...p })));
     nameCounter.current.i = 0;
     // First decision: hire your founding manager.
@@ -692,43 +672,6 @@ export default function Game() {
     };
     setEnding(end);
     setEarned(recordRun(summary));
-
-    // Persist last-run snapshot for dynasty inheritance (non-seeded runs only,
-    // so the daily never seeds the next regular run's world).
-    if (!seeded) {
-      writeLastRun({
-        founding,
-        trophies,
-        charterBroken,
-        survived,
-        bestPosition,
-        movedOut,
-        corporate,
-        endingTitle: end.title,
-        soul: finalMeters.soul,
-        fans: finalMeters.fans,
-        money: finalMeters.money,
-        endedAt: Date.now(),
-      });
-    }
-
-    // Append to the clubs wall regardless of seeded/non-seeded.
-    appendClub({
-      region: founding.region ?? "",
-      story: founding.story ?? "",
-      rules: founding.rules,
-      trophies,
-      charterBroken,
-      survived,
-      endingTitle: end.title,
-      soul: finalMeters.soul,
-      fans: finalMeters.fans,
-      money: finalMeters.money,
-      endedAt: Date.now(),
-      seeded,
-    });
-    setClubs(readClubs());
-
     // The century is over — there's nothing left to resume.
     clearSave();
     setResumable(false);
