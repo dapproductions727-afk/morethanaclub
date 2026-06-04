@@ -59,6 +59,14 @@ export const STORIES: Record<string, Story> = {
       }
     },
   },
+  dynasty: {
+    name: "The dynasty",
+    flavor: "One name, generation after generation. The founding family never left. The club is the family, and the family is the club.",
+    bonus: { soul: 10, fans: 5 },
+    mod: (d, tags) => {
+      if (tags.includes("ownership") && (d.soul ?? 0) < 0) d.soul = Math.round((d.soul as number) * 1.3);
+    },
+  },
 };
 
 // Charter rules: up to three sworn into the founding document. Each grants a
@@ -150,6 +158,18 @@ export const RULES: Record<string, Rule> = {
       if (tags.includes("debt-hold")) {
         d.soul = (d.soul ?? 0) + 8;
         d.money = (d.money ?? 0) + 5;
+      }
+    },
+  },
+  europe: {
+    name: "Continental ambition",
+    note: "The club shall compete in Europe. Standing still is failure.",
+    bonus: { money: 10 },
+    mod: (d, tags) => {
+      if (tags.includes("commercial") && (d.money ?? 0) > 0) d.money = Math.round((d.money as number) * 1.2);
+      if (tags.includes("europe-hold")) {
+        d.fans = (d.fans ?? 0) + 10;
+        d.money = (d.money ?? 0) + 8;
       }
     },
   },
