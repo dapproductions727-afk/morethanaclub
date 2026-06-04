@@ -98,10 +98,18 @@ export function useAudio() {
   }
 
   function toggle() {
-    if (!ctxRef.current) {
-      const ac = new AudioContext();
-      ctxRef.current = ac;
-      boot(ac);
+    // Create a fresh context if none exists, or if a previous one was closed
+    // (e.g. by a dev HMR cycle) or if sting() fired first and created a bare
+    // context without calling boot().
+    if (!ctxRef.current || ctxRef.current.state === "closed" || !masterRef.current) {
+      if (ctxRef.current && ctxRef.current.state !== "closed") {
+        // Context exists but master was never set up (sting fired first).
+        boot(ctxRef.current);
+      } else {
+        const ac = new AudioContext();
+        ctxRef.current = ac;
+        boot(ac);
+      }
     }
     const ac = ctxRef.current!;
     const m  = masterRef.current!;
@@ -115,9 +123,10 @@ export function useAudio() {
   // whether the background music is on. "win" rises and resolves bright;
   // "loss" is a short, flat two-note fall.
   function sting(kind: "win" | "loss" = "win") {
-    if (!ctxRef.current) {
+    if (!ctxRef.current || ctxRef.current.state === "closed") {
       try {
         ctxRef.current = new AudioContext();
+        masterRef.current = null; // will be set up by toggle() when user enables music
       } catch {
         return;
       }
