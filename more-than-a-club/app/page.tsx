@@ -6,7 +6,7 @@ import { REGIONS } from "@/lib/regions";
 import { STORIES, RULES } from "@/lib/charter";
 import { scenes, bindSceneHooks } from "@/lib/scenes";
 import { MANAGERS, managerByKey } from "@/lib/managers";
-import { rollEvent, type EventCtx } from "@/lib/events";
+import { rollEvent, rollInteractive, type EventCtx, type InteractiveEvent } from "@/lib/events";
 import { leagueTable, playerPosition, dynastyRival } from "@/lib/rivals";
 import { ACHIEVEMENTS, UNLOCKS, recordRun, getUnlockedAchievements, readLastRun, writeLastRun, nextUnlock, lockedContent, type RunSummary } from "@/lib/progress";
 import { deriveInheritance, type Inheritance } from "@/lib/dynasty";
@@ -36,7 +36,7 @@ import Stadium from "@/components/Stadium";
 import { useAudio } from "@/lib/useAudio";
 import { MetersBar, SquadPanel, ReachStrip, TechTimeline, MoodMeter, ManagerPanel, NewsTicker, LeagueTable, CultureStrip } from "@/components/Hud";
 
-type Phase = "boot" | "founding" | "summary" | "manager" | "scene" | "seasons" | "match" | "pressure" | "mgrEvent" | "ending";
+type Phase = "boot" | "founding" | "summary" | "manager" | "scene" | "seasons" | "match" | "pressure" | "mgrEvent" | "eraEvent" | "ending";
 
 interface PressureEvent {
   kind: "fan_pressure" | "rival_interest";
@@ -171,6 +171,9 @@ export default function Game() {
 
   // Manager era events — periodic relationship decisions.
   const [pendingMgrEvt, setPendingMgrEvt] = useState<PendingMgrEvt | null>(null);
+
+  // Mid-era interactive events — small decisions between seasons.
+  const [pendingEraEvt, setPendingEraEvt] = useState<InteractiveEvent | null>(null);
   const [firedMgrEvts, setFiredMgrEvts] = useState<Set<string>>(new Set());
   const [mgrContractLocked, setMgrContractLocked] = useState(false);
 
@@ -293,7 +296,7 @@ export default function Game() {
   // full-screen phases (founding, manager, ending) so they're never hidden below
   // a previously scrolled viewport.
   useEffect(() => {
-    if (phase === "seasons" || phase === "scene" || phase === "pressure" || phase === "mgrEvent") {
+    if (phase === "seasons" || phase === "scene" || phase === "pressure" || phase === "mgrEvent" || phase === "eraEvent") {
       cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } else {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -637,6 +640,49 @@ export default function Game() {
     }
   }
 
+  function resolveEraEvent(choiceIdx: 0 | 1) {
+    const ev = pendingEraEvt!;
+    setPendingEraEvt(null);
+    const opt = ev.options[choiceIdx];
+
+    const before: Meters = { ...meters };
+    const nextMeters: Meters = { ...meters };
+    const nextSquad = [...squad];
+    const ectx: EventCtx = {
+      meters: nextMeters,
+      squad: nextSquad,
+      addPlayer: (p) => nextSquad.push(p),
+      boostUnder: (age, by) => nextSquad.forEach((p) => { if (p.age < age) p.rating += by; }),
+    };
+    opt.apply(ectx);
+
+    if (opt.tags && opt.tags.length > 0) {
+      const delta: Meters = {
+        money: nextMeters.money - before.money,
+        soul: nextMeters.soul - before.soul,
+        fans: nextMeters.fans - before.fans,
+      };
+      applyModifiers(delta, opt.tags, founding);
+      setCulture((c) => Math.max(-50, Math.min(50, c + cultureDelta(opt.tags!))));
+      setMeters({
+        money: clamp(before.money + (delta.money || 0)),
+        soul: clamp(before.soul + (delta.soul || 0)),
+        fans: clamp(before.fans + (delta.fans || 0)),
+      });
+    } else {
+      setMeters({
+        money: clamp(nextMeters.money),
+        soul: clamp(nextMeters.soul),
+        fans: clamp(nextMeters.fans),
+      });
+    }
+
+    setSquad(nextSquad);
+    setNews((n) => [...n, opt.outcome]);
+    logEvent(`${ev.sp}: ${opt.t}`);
+    setPhase("seasons");
+  }
+
   function resolveMgrEvent(choice: 0 | 1) {
     const ev = pendingMgrEvt!;
     setPendingMgrEvt(null);
@@ -799,6 +845,18 @@ export default function Game() {
     ]);
     setSeasonInEra(newSeasonInEra);
     setSeasonsLeft((s) => s - 1);
+
+    // Mid-era interactive event: fires on a non-final season with no passive
+    // event, roughly 1-in-4. Never stacks with a big-match season.
+    const canInteract = !isLast && !newsLine && seedRng.current() < 0.25;
+    if (canInteract) {
+      const ie = rollInteractive({ era: current, meters: nextMeters, trophies, reach: nextReach }, seedRng.current);
+      if (ie) {
+        setPendingEraEvt(ie);
+        setPhase("eraEvent");
+        return;
+      }
+    }
 
     if (isLast) {
       setTimeout(() => endOfEra(nextSquad, nextMeters, latestForm), 1100);
@@ -1036,6 +1094,15 @@ export default function Game() {
           {hudGame}
           <div ref={cardRef}>
             <ManagerEventCard event={pendingMgrEvt} onResolve={resolveMgrEvent} />
+          </div>
+        </>
+      )}
+
+      {phase === "eraEvent" && pendingEraEvt && (
+        <>
+          {hudGame}
+          <div ref={cardRef}>
+            <EventChoiceCard event={pendingEraEvt} onResolve={resolveEraEvent} />
           </div>
         </>
       )}
@@ -1766,6 +1833,31 @@ function PressureCard({
         <button className="c" onClick={() => onResolve(true)}>
           Wish him well. Take the compensation.
           <small>He goes. A little money comes back. Back to the dugout.</small>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EventChoiceCard({
+  event,
+  onResolve,
+}: {
+  event: InteractiveEvent;
+  onResolve: (choice: 0 | 1) => void;
+}) {
+  return (
+    <div className="card">
+      <div className="sp">{event.sp}</div>
+      <div className="pr">{event.prompt}</div>
+      <div className="ch">
+        <button className="c" onClick={() => onResolve(0)}>
+          {event.options[0].t}
+          <small>{event.options[0].note}</small>
+        </button>
+        <button className="c" onClick={() => onResolve(1)}>
+          {event.options[1].t}
+          <small>{event.options[1].note}</small>
         </button>
       </div>
     </div>
