@@ -557,6 +557,73 @@ button.nx:active { transform: translate(3px, 3px); box-shadow: 0 0 0 0 #000; }
   margin-top: 16px;
 }
 
+/* ---------- Next-unlock nudge (boot screen) ---------- */
+.nextunlock {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 2px solid var(--green);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nu-label {
+  font-size: 7px;
+  color: var(--green);
+  letter-spacing: 1px;
+}
+.nu-name {
+  font-size: 14px;
+  color: var(--ink);
+}
+.nu-hint {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+.nu-reward {
+  font-size: 11px;
+  color: var(--gold);
+  font-family: var(--font-pixel), monospace;
+}
+
+/* ---------- Locked founding options ---------- */
+button.c.locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+button.c.locked:hover { background: var(--panel-hi); }
+button.c.locked:active {
+  transform: none;
+  box-shadow: 3px 3px 0 0 #000;
+}
+
+/* ---------- Dynasty clubs wall ---------- */
+.dynasty-wall { margin-top: 14px; }
+.dynasty-row {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+  border-bottom: 1px dotted rgba(124, 145, 115, 0.15);
+  gap: 2px;
+}
+.dynasty-row:last-child { border-bottom: none; }
+.dynasty-label {
+  font-size: 7px;
+  color: var(--amber);
+  letter-spacing: 0.5px;
+}
+.dynasty-ending {
+  font-size: 13px;
+  color: var(--ink);
+}
+.dynasty-stats {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 /* ---------- Run history ---------- */
 .history .histrow {
   display: flex;

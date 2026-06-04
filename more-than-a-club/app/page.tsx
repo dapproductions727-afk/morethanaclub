@@ -7,8 +7,10 @@ import { STORIES, RULES } from "@/lib/charter";
 import { scenes, bindSceneHooks } from "@/lib/scenes";
 import { MANAGERS, managerByKey } from "@/lib/managers";
 import { rollEvent, type EventCtx } from "@/lib/events";
-import { leagueTable, playerPosition, RIVALS } from "@/lib/rivals";
-import { ACHIEVEMENTS, recordRun, getUnlockedAchievements, type RunSummary } from "@/lib/progress";
+import { leagueTable, playerPosition, dynastyRival } from "@/lib/rivals";
+import { ACHIEVEMENTS, UNLOCKS, recordRun, getUnlockedAchievements, readLastRun, writeLastRun, nextUnlock, lockedContent, type RunSummary } from "@/lib/progress";
+import { deriveInheritance, type Inheritance } from "@/lib/dynasty";
+import { appendClub, readClubs } from "@/lib/dynastyHistory";
 import { mulberry32, seedFromString, todaySeedString, seededFounding, seededScore } from "@/lib/seed";
 import { readSave, writeSave, clearSave, hasSave, type SaveGame } from "@/lib/savegame";
 import {
@@ -172,6 +174,9 @@ export default function Game() {
   const [firedMgrEvts, setFiredMgrEvts] = useState<Set<string>>(new Set());
   const [mgrContractLocked, setMgrContractLocked] = useState(false);
 
+  // Dynasty inheritance: derived from the last run at the start of a new century.
+  const [inheritance, setInheritance] = useState<Inheritance | null>(null);
+
   // Replayability: run history, league position, seeded mode.
   const [runLog, setRunLog] = useState<{ year: string; text: string }[]>([]);
   const [bestPosition, setBestPosition] = useState(4);
@@ -302,8 +307,9 @@ export default function Game() {
     ? clamp(Math.round(meters.fans * 0.2))
     : clamp(Math.round(meters.fans * 0.6 + meters.soul * 0.4));
   const stadium = deriveStadium({ era: current, rebuilt, newStand, movedOut, corporate, lights: lightsOn, radio: radioOn, tv: tvOn });
-  const leaguePos = playerPosition(strength(squad), current);
-  const table = leagueTable(clubName, strength(squad), current);
+  const extraRivals = inheritance ? [dynastyRival(inheritance)] : [];
+  const leaguePos = playerPosition(strength(squad), current, extraRivals);
+  const table = leagueTable(clubName, strength(squad), current, extraRivals);
 
   // Track best league finish reached across the run.
   useEffect(() => {
@@ -349,9 +355,12 @@ export default function Game() {
   }
 
   // Start a seeded daily challenge: fixed founding, deterministic century.
+  // Dynasty inheritance is intentionally skipped — seeded runs must be
+  // identical for every player, so personal history cannot reshape them.
   function startSeeded() {
     clearSave();
     setResumable(false);
+    setInheritance(null);
     const seedStr = todaySeedString();
     const seed = seedFromString(seedStr);
     seedRng.current = mulberry32(seed);
@@ -392,10 +401,12 @@ export default function Game() {
       rb.soul += b.soul || 0;
       rb.fans += b.fans || 0;
     });
+    const inh = deriveInheritance(readLastRun());
+    setInheritance(inh);
     setMeters({
-      money: clamp(r.start.money + (s.bonus.money || 0) + rb.money),
-      soul: clamp(r.start.soul + (s.bonus.soul || 0) + rb.soul),
-      fans: clamp(r.start.fans + (s.bonus.fans || 0) + rb.fans),
+      money: clamp(r.start.money + (s.bonus.money || 0) + rb.money + (inh?.startBump.money || 0)),
+      soul: clamp(r.start.soul + (s.bonus.soul || 0) + rb.soul + (inh?.startBump.soul || 0)),
+      fans: clamp(r.start.fans + (s.bonus.fans || 0) + rb.fans + (inh?.startBump.fans || 0)),
     });
     setSquad(r.squad.map((p) => ({ ...p })));
     nameCounter.current.i = 0;
@@ -460,6 +471,10 @@ export default function Game() {
       fans: workingMeters.fans - before.fans,
     };
     applyModifiers(delta, tags, founding);
+    // Dynasty era pressure: commercial choices pay more in a sellout-era world.
+    if (inheritance && inheritance.eraPressureMod !== 1.0 && tags.includes("commercial")) {
+      delta.money = Math.round((delta.money || 0) * inheritance.eraPressureMod);
+    }
 
     const finalMeters: Meters = {
       money: clamp(before.money + (delta.money || 0)),
@@ -670,6 +685,40 @@ export default function Game() {
       seeded,
       score,
     };
+    // Persist the last-run snapshot for next run's unlock hints and dynasty
+    // inheritance. Seeded runs are identical for all players, so we don't let
+    // them influence a personal dynasty.
+    if (!seeded) {
+      writeLastRun({
+        founding,
+        trophies,
+        charterBroken,
+        survived,
+        bestPosition,
+        movedOut,
+        corporate,
+        endingTitle: end.title,
+        soul: finalMeters.soul,
+        fans: finalMeters.fans,
+        money: finalMeters.money,
+        endedAt: Date.now(),
+      });
+    }
+    // All finished centuries go on the clubs wall, seeded or not.
+    appendClub({
+      region: founding.region ?? "",
+      story: founding.story ?? "",
+      rules: founding.rules,
+      trophies,
+      charterBroken,
+      survived,
+      endingTitle: end.title,
+      soul: finalMeters.soul,
+      fans: finalMeters.fans,
+      money: finalMeters.money,
+      endedAt: Date.now(),
+      seeded,
+    });
     setEnding(end);
     setEarned(recordRun(summary));
     // The century is over — there's nothing left to resume.
@@ -883,11 +932,12 @@ export default function Game() {
         />
       )}
 
+
       {phase === "founding" && (
         <FoundingScreen step={foundingStep} founding={founding} onPick={pickFounding} onSeal={sealCharter} />
       )}
 
-      {phase === "summary" && <SummaryScreen founding={founding} onBegin={beginCentury} />}
+      {phase === "summary" && <SummaryScreen founding={founding} inheritanceFlavorLine={deriveInheritance(readLastRun())?.flavorLine} onBegin={beginCentury} />}
 
       {phase === "manager" && <ManagerScreen onHire={hireManager} />}
 
@@ -1044,6 +1094,10 @@ function BootScreen({
   canResume: boolean;
 }) {
   const unlocked = getUnlockedAchievements();
+  const next = nextUnlock();
+  const clubs = readClubs();
+  const [showClubs, setShowClubs] = useState(false);
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
       <div className="intro-title">
@@ -1077,10 +1131,40 @@ function BootScreen({
           Daily challenge
           <small>The same century for everyone today. One run. Beat your score.</small>
         </button>
+        {clubs.length > 0 && (
+          <button className="c" onClick={() => setShowClubs((v) => !v)}>
+            Your clubs ({clubs.length})
+            <small>{showClubs ? "Hide the dynasty wall." : "Every century you've ever run."}</small>
+          </button>
+        )}
       </div>
       {unlocked.length > 0 && (
         <div className="bootach pix">
-          {unlocked.length} / {ACHIEVEMENTS.length} achievements earned
+          {unlocked.length} / {ACHIEVEMENTS.length} earned
+        </div>
+      )}
+      {next && (
+        <div className="nextunlock">
+          <span className="nu-label pix">NEXT</span>
+          <span className="nu-name">{next.achievement.name}</span>
+          <span className="nu-hint">{next.hint}</span>
+          {next.unlocksLabel && <span className="nu-reward">Unlocks: {next.unlocksLabel}</span>}
+        </div>
+      )}
+      {showClubs && clubs.length > 0 && (
+        <div className="panel dynasty-wall">
+          <h3>Your clubs</h3>
+          {[...clubs].reverse().map((c, i) => (
+            <div className="dynasty-row" key={i}>
+              <span className="dynasty-label pix">{c.foundedLabel}{c.seeded ? " ★" : ""}</span>
+              <span className="dynasty-ending">{c.endingTitle}</span>
+              <span className="dynasty-stats">
+                {c.trophies > 0 ? `${c.trophies}🏆 ` : ""}
+                {c.charterBroken ? "✗ charter" : "✓ charter"}
+                {!c.survived ? " · died" : ""}
+              </span>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1100,6 +1184,7 @@ function FoundingScreen({
 }) {
   const f = foundingFlow[step];
   const data = (g: string, k: string) => (g === "region" ? REGIONS[k] : g === "story" ? STORIES[k] : RULES[k]);
+  const locked = lockedContent();
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
@@ -1114,11 +1199,18 @@ function FoundingScreen({
           {f.keys.map((k) => {
             const opt: any = data(f.group, k);
             const chosen = f.multi && founding.rules.includes(k);
+            const lockKey = f.group === "story" ? `story:${k}` : f.group === "rule" ? `rule:${k}` : undefined;
+            const lock = lockKey ? locked[lockKey] : undefined;
             return (
-              <button key={k} className={`c ${chosen ? "chosen" : ""}`} onClick={() => onPick(f.group, k)}>
-                {chosen ? "✓ " : ""}
+              <button
+                key={k}
+                className={`c ${chosen ? "chosen" : ""} ${lock ? "locked" : ""}`}
+                disabled={!!lock}
+                onClick={() => !lock && onPick(f.group, k)}
+              >
+                {lock ? "🔒 " : chosen ? "✓ " : ""}
                 {opt.name}
-                <small>{opt.flavor || opt.note}</small>
+                <small>{lock ? lock.label : (opt.flavor || opt.note)}</small>
               </button>
             );
           })}
@@ -1140,7 +1232,15 @@ function FoundingScreen({
   );
 }
 
-function SummaryScreen({ founding, onBegin }: { founding: Founding; onBegin: () => void }) {
+function SummaryScreen({
+  founding,
+  inheritanceFlavorLine,
+  onBegin,
+}: {
+  founding: Founding;
+  inheritanceFlavorLine?: string;
+  onBegin: () => void;
+}) {
   const r = REGIONS[founding.region as string];
   const s = STORIES[founding.story as string];
   return (
@@ -1156,6 +1256,11 @@ function SummaryScreen({ founding, onBegin }: { founding: Founding; onBegin: () 
             {r.place}. {s.name}. Charter: {ruleNames(founding)}.
           </p>
           <p style={{ color: "var(--muted)", fontStyle: "italic" }}>{r.flavor}</p>
+          {inheritanceFlavorLine && (
+            <p style={{ color: "var(--amber)", fontSize: 13, fontStyle: "italic", borderLeft: "2px solid var(--amber)", paddingLeft: 8 }}>
+              {inheritanceFlavorLine}
+            </p>
+          )}
         </div>
         <div className="ch">
           <button className="c seal" onClick={onBegin}>
@@ -1532,6 +1637,7 @@ function EndingScreen({
 }) {
   const newKeys = new Set(earned?.newlyEarned || []);
   const earnedThisRun = ACHIEVEMENTS.filter((a) => (earned?.all || []).includes(a.key) && newKeys.has(a.key));
+  const unlockedContent = (earned?.newlyEarned || []).map((k) => UNLOCKS[k]).filter(Boolean);
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
       <header className="hud">
@@ -1562,7 +1668,7 @@ function EndingScreen({
           <p style={{ color: "var(--muted)", fontSize: 13 }}>{ending.caption}</p>
           <p style={{ color: "var(--muted)", fontSize: 13, fontStyle: "italic" }}>{cultureSummary}</p>
           <p style={{ color: "var(--green)", fontSize: 13 }}>
-            Best league finish: {bestPosition === 1 ? "1st" : bestPosition === 2 ? "2nd" : bestPosition === 3 ? "3rd" : "4th"}
+            Best league finish: {bestPosition === 1 ? "1st" : bestPosition === 2 ? "2nd" : bestPosition === 3 ? "3rd" : bestPosition === 4 ? "4th" : "5th"}
           </p>
           {seeded && (
             <p className="pix" style={{ fontSize: 11, color: "var(--amber)" }}>
@@ -1570,6 +1676,18 @@ function EndingScreen({
             </p>
           )}
         </div>
+
+        {unlockedContent.length > 0 && (
+          <div className="panel ach" style={{ borderColor: "var(--gold)", background: "rgba(242,193,78,0.06)" }}>
+            <h3>New founding option unlocked</h3>
+            {unlockedContent.map((u, i) => (
+              <div className="achrow" key={i}>
+                <span className="achname" style={{ color: "var(--gold)" }}>★ {u.label}</span>
+                <span className="achdesc">Available from your next founding.</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {earnedThisRun.length > 0 && (
           <div className="panel ach">

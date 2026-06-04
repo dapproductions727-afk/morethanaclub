@@ -4,6 +4,8 @@
 // era. They are deterministic given the era index (no RNG) so the table reads
 // as a coherent story, not noise.
 
+import type { Inheritance } from "./dynasty";
+
 export interface Rival {
   key: string;
   name: string;
@@ -61,8 +63,24 @@ export interface TableRow {
   isPlayer: boolean;
 }
 
-export function leagueTable(playerName: string, playerStrength: number, era: number): TableRow[] {
-  const rows: TableRow[] = RIVALS.map((r) => ({
+export function dynastyRival(inh: Inheritance): Rival {
+  return {
+    key: "dynasty",
+    name: inh.rivalName,
+    archetype: inh.rivalArchetype,
+    blurb: inh.rivalBlurb,
+    arc: inh.rivalArc,
+  };
+}
+
+export function leagueTable(
+  playerName: string,
+  playerStrength: number,
+  era: number,
+  extraRivals: Rival[] = [],
+): TableRow[] {
+  const allRivals = [...RIVALS, ...extraRivals];
+  const rows: TableRow[] = allRivals.map((r) => ({
     name: r.name,
     strength: rivalStrength(r, era),
     isPlayer: false,
@@ -72,7 +90,12 @@ export function leagueTable(playerName: string, playerStrength: number, era: num
   return rows;
 }
 
-export function playerPosition(playerStrength: number, era: number): number {
-  const stronger = RIVALS.filter((r) => rivalStrength(r, era) > playerStrength).length;
-  return stronger + 1; // 1st..4th
+export function playerPosition(
+  playerStrength: number,
+  era: number,
+  extraRivals: Rival[] = [],
+): number {
+  const allRivals = [...RIVALS, ...extraRivals];
+  const stronger = allRivals.filter((r) => rivalStrength(r, era) > playerStrength).length;
+  return stronger + 1; // 1st..(3+extraRivals.length+1)th
 }

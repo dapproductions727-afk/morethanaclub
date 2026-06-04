@@ -59,6 +59,15 @@ export const STORIES: Record<string, Story> = {
       }
     },
   },
+  dynasty: {
+    name: "The dynasty",
+    flavor: "Built to outlast any single generation. The first board wrote the word 'dynasty' into the minutes — not one great season, but a hundred years of the same idea.",
+    bonus: { soul: 8, fans: 5 },
+    mod: (d, tags) => {
+      // A dynasty club resists commercial drift more than most.
+      if (tags.includes("commercial") && (d.soul ?? 0) < 0) d.soul = Math.round((d.soul as number) * 1.35);
+    },
+  },
 };
 
 // Charter rules: up to three sworn into the founding document. Each grants a
@@ -151,6 +160,17 @@ export const RULES: Record<string, Rule> = {
         d.soul = (d.soul ?? 0) + 8;
         d.money = (d.money ?? 0) + 5;
       }
+    },
+  },
+  europe: {
+    name: "Continental ambition",
+    note: "If the door opens, we walk through it. This club was built for the biggest stage.",
+    bonus: { fans: 12, money: -5 },
+    mod: (d, tags) => {
+      // European glory multiplies the fan buzz from glamour signings.
+      if (tags.includes("glamour") && (d.fans ?? 0) > 0) d.fans = Math.round((d.fans as number) * 1.3);
+      // Commercial deals pay better when the brand is continental.
+      if (tags.includes("commercial") && (d.money ?? 0) > 0) d.money = Math.round((d.money as number) * 1.2);
     },
   },
 };
