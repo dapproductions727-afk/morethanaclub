@@ -334,16 +334,8 @@ export default function Stadium({
     ""
   )}</svg>`;
 
-  const animClass =
-    mood === "furious" ? "stad-furious"
-    : mood === "ecstatic" ? "stad-ecstatic"
-    : night && lights ? "stad-lit"
-    : night ? "stad-night"
-    : "stad-day";
-
   return (
     <div
-      className={animClass}
       style={{
         border: "2px solid var(--line)",
         boxShadow: "var(--shadow)",

@@ -283,6 +283,8 @@ export default function Game() {
     foundingRef.current = s.founding;
     seedRng.current = Math.random;
     setSeeded(false);
+    // Re-derive the dynasty inheritance so the rival shows in the league table.
+    setInheritance(deriveInheritance(readLastRun()));
     setSceneNote("");
     setPhase("scene");
   }
