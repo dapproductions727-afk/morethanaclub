@@ -27,7 +27,7 @@ export const TECHS = [
     year: "1927",
     blurb: "A voice in the parlour. Your name leaves the district.",
     history:
-      "Write the club's radio history here. The first crackling commentary that carried the score beyond the terraces — who called it, what they said, the night the whole town listened in.",
+      "The first voice came on a winter Saturday, a man in a freezing gantry describing what the people below could already see. It seemed a small thing — a score read out, a name spoken into the dark. But the next week the man in the next town heard it too, and the week after that someone who had never stood on the terrace knew your colours. The club stopped being a place you went and started being a thing you followed. That was the gift and the theft in one: your name left the district, and so did a little of the district's claim on it.",
   },
   {
     key: "floodlights",
@@ -35,7 +35,7 @@ export const TECHS = [
     year: "1958",
     blurb: "Football after dark. Midweek crowds, new money.",
     history:
-      "Write the floodlights history here. The first match under the lights, the midweek crowds it brought, what it cost and who paid for it.",
+      "They went up like the masts of a ship that was never going to sail, four towers over a ground built for daylight. The first match under them felt like a held breath — the pitch too green, the shadows wrong, the crowd louder than they'd ever been at three on a Saturday. Midweek football was suddenly possible, which meant midweek gate money, which meant the fixtures multiplied to fill the lights you'd paid for. The town that worked all week could finally come at night. The club that had belonged to the afternoon now belonged to the floodlit evening, and to whoever held the electricity bill.",
   },
   {
     key: "television",
@@ -43,7 +43,7 @@ export const TECHS = [
     year: "1965",
     blurb: "The match becomes a broadcast. The gate becomes optional.",
     history:
-      "Write the television history here. The first time the cameras carried the club to the country, what it did to the gate, and what it did to the soul of the place.",
+      "The cameras arrived politely, asked for a good vantage, and quietly took over. The first broadcast carried the club to living rooms in cities that couldn't have found the ground on a map — a triumph, everyone agreed, until the gate dipped the following month and nobody could prove why. Why stand in the rain when the match came to the armchair? The money the broadcasters offered was real and large and impossible to refuse, and every pound of it came with a thread attached, running back to a control room that would, in time, decide when you played and who you played for. You were no longer staging a match. You were supplying content.",
   },
   {
     key: "data",
@@ -51,7 +51,7 @@ export const TECHS = [
     year: "2015",
     blurb: "Every pass measured. The squad becomes a spreadsheet.",
     history:
-      "Write the data & analytics history here. The first analyst in the building, the arguments it started, what the numbers saw that the eyes didn't.",
+      "The first analyst was younger than the kit man and carried a laptop instead of a clipboard, and for a season the dressing room treated him like a tourist. Then his numbers started being right — the winger who should have been sold, the system that was leaking goals nobody had named yet. Every pass, every sprint, every tired stride was measured now, and the measurements saw things the eye had loved too much to admit. It made the club sharper and a little colder. The old men who'd judged a player by how he carried himself were not wrong, exactly. They were just no longer the ones being listened to.",
   },
   {
     key: "streaming",
@@ -59,7 +59,7 @@ export const TECHS = [
     year: "2020",
     blurb: "The match goes direct. Anyone, anywhere, on any screen.",
     history:
-      "Write the streaming history here. The club's own channel, the global audience it reached overnight, and the question of who the match is really for now.",
+      "The club built its own channel and pointed it at the world, and the world, briefly, looked back — supporters in time zones you'd never played in, watching a youth-team friendly at four in the morning their time because it was yours. The middleman was gone; the match went direct, anyone, anywhere, any screen. It should have been a homecoming, the club speaking straight to its people at last. But the audience that arrived was global and thin, a million strangers a tenth as devoted as the thousand who still walked to the ground, and somewhere in the subscriber dashboard a question sat unanswered: who is the match actually for now, and is it still the people who can hear the final whistle from their own front doors?",
   },
 ] as const;
 
