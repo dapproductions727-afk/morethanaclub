@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Meters, Player, Founding, FlagKey, RunContext, Mood, Manager, BigMatch, StadiumState } from "@/lib/types";
 import { REGIONS } from "@/lib/regions";
 import { STORIES, RULES } from "@/lib/charter";
-import { scenes, bindSceneHooks } from "@/lib/scenes";
+import { slots, resolveScene, SCENE_COUNT, bindSceneHooks } from "@/lib/scenes";
 import { MANAGERS, managerByKey } from "@/lib/managers";
 import { rollEvent, rollInteractive, type EventCtx, type InteractiveEvent } from "@/lib/events";
 import { leagueTable, playerPosition, dynastyRival } from "@/lib/rivals";
@@ -135,6 +135,8 @@ export default function Game() {
   const [current, setCurrent] = useState(0);
   const [charterBroken, setCharterBroken] = useState(false);
   const [defiedBan, setDefiedBan] = useState(false);
+  // Branch-worthy past choices, recorded by their `mark`. Read by scene variants.
+  const [decisions, setDecisions] = useState<Set<string>>(new Set());
   const [unlockedTech, setUnlockedTech] = useState<Set<string>>(new Set());
 
   // Stadium decision flags.
@@ -199,10 +201,30 @@ export default function Game() {
     foundingRef.current = founding;
   }, [founding]);
 
+  // Refs mirroring state the scene-variant bridge reads, kept current via
+  // effects so scene code always sees live values without re-binding hooks.
+  const decisionsRef = useRef(decisions);
+  useEffect(() => {
+    decisionsRef.current = decisions;
+  }, [decisions]);
+
+  const metersRef = useRef(meters);
+  useEffect(() => {
+    metersRef.current = meters;
+  }, [meters]);
+
+  const cultureRef = useRef(culture);
+  useEffect(() => {
+    cultureRef.current = culture;
+  }, [culture]);
+
   useEffect(() => {
     bindSceneHooks(
       (k: string) => foundingRef.current.rules.includes(k),
-      () => flagRef.current.defiedBan
+      () => flagRef.current.defiedBan,
+      (mark: string) => decisionsRef.current.has(mark),
+      (k: "money" | "soul" | "fans") => metersRef.current[k],
+      () => cultureRef.current
     );
   }, []);
 
@@ -222,7 +244,7 @@ export default function Game() {
   useEffect(() => {
     if (phase !== "scene" || seeded || !founding.region) return;
     const snap: SaveGame = {
-      version: 1,
+      version: 2,
       savedAt: Date.now(),
       founding,
       meters,
@@ -232,6 +254,7 @@ export default function Game() {
       current,
       charterBroken,
       defiedBan,
+      decisions: Array.from(decisions),
       unlockedTech: Array.from(unlockedTech),
       rebuilt,
       newStand,
@@ -260,6 +283,7 @@ export default function Game() {
     if (!s) return;
     setFounding(s.founding);
     setMeters(s.meters);
+    metersRef.current = s.meters;
     setSquad(s.squad);
     setTrophies(s.trophies);
     setReach(s.reach);
@@ -267,6 +291,11 @@ export default function Game() {
     setCharterBroken(s.charterBroken);
     setDefiedBan(s.defiedBan);
     flagRef.current.defiedBan = s.defiedBan;
+    // Restore decisions and update the ref directly so the scene memo resolves
+    // the correct variant on the very next render, before the sync effect runs.
+    const restoredDecisions = new Set(s.decisions ?? []);
+    setDecisions(restoredDecisions);
+    decisionsRef.current = restoredDecisions;
     setUnlockedTech(new Set(s.unlockedTech));
     setRebuilt(s.rebuilt);
     setNewStand(s.newStand);
@@ -279,6 +308,7 @@ export default function Game() {
     setFiredMgrEvts(new Set(s.firedMgrEvts));
     setNews(s.news);
     setCulture(s.culture);
+    cultureRef.current = s.culture;
     charterWasBroken.current = s.charterWasBroken;
     setRunLog(s.runLog);
     setBestPosition(s.bestPosition);
@@ -316,6 +346,16 @@ export default function Game() {
   const leaguePos = playerPosition(strength(squad), current, extraRivals);
   const table = leagueTable(clubName, strength(squad), current, extraRivals);
 
+  // Resolve the current era's card ONCE per era, keyed only on `current`. A
+  // variant's when() reads flags that keep changing during the era (seasons
+  // move meters); memoising on current alone means the card the player is
+  // playing can never reshuffle itself mid-era. The variant is chosen by the
+  // flag state as it was when the era began — exactly right.
+  const scene = useMemo(() => {
+    const slot = slots[current] as (typeof slots)[number] | undefined;
+    return slot ? resolveScene(slot) : undefined;
+  }, [current]);
+
   // Track best league finish reached across the run.
   useEffect(() => {
     if ((phase === "scene" || phase === "seasons") && leaguePos < bestPosition) {
@@ -324,7 +364,7 @@ export default function Game() {
   }, [phase, leaguePos, bestPosition]);
 
   function logEvent(text: string) {
-    const y = scenes[current]?.year.replace("{PLACE}", place) || "";
+    const y = resolveScene(slots[current])?.year.replace("{PLACE}", place) || "";
     setRunLog((l) => [...l, { year: y.split("·").pop()?.trim() || y, text }]);
   }
 
@@ -366,6 +406,8 @@ export default function Game() {
     clearSave();
     setResumable(false);
     setInheritance(null);
+    setDecisions(new Set());
+    decisionsRef.current = new Set();
     const seedStr = todaySeedString();
     const seed = seedFromString(seedStr);
     seedRng.current = mulberry32(seed);
@@ -397,6 +439,8 @@ export default function Game() {
   function beginCentury() {
     clearSave();
     setResumable(false);
+    setDecisions(new Set());
+    decisionsRef.current = new Set();
     const r = REGIONS[founding.region as string];
     const s = STORIES[founding.story as string];
     const rb = { money: 0, soul: 0, fans: 0 };
@@ -433,7 +477,7 @@ export default function Game() {
   // SCENE -> CHOICE
   // =====================================================================
   function chooseOption(idx: number) {
-    const scene = scenes[current];
+    const scene = resolveScene(slots[current]);
     const opt = scene.ch[idx];
 
     const before: Meters = { ...meters };
@@ -468,6 +512,9 @@ export default function Game() {
     };
 
     opt.run(ctx);
+
+    // Record branch-worthy choices into run history for later scene variants.
+    if (opt.mark) setDecisions((d) => new Set(d).add(opt.mark as string));
 
     const tags = opt.tags || [];
     const delta: Meters = {
@@ -534,7 +581,9 @@ export default function Game() {
     setMeters(withMgr);
 
     const next = current + 1;
-    const nextScene = scenes[next];
+    // tech and year are shared across a slot's variants, so resolving the next
+    // slot here is safe regardless of which variant the player will face.
+    const nextScene = next < SCENE_COUNT ? resolveScene(slots[next]) : undefined;
     if (nextScene?.tech) setUnlockedTech((u) => new Set(u).add(nextScene.tech as string));
     if (nextScene) {
       setFlashText(nextScene.year.replace("{PLACE}", place));
@@ -542,7 +591,7 @@ export default function Game() {
     }
     setCurrent(next);
 
-    if (next >= scenes.length || withMgr.soul <= 0 || withMgr.money <= 0 || withMgr.fans <= 0) {
+    if (next >= SCENE_COUNT || withMgr.soul <= 0 || withMgr.money <= 0 || withMgr.fans <= 0) {
       charterWasBroken.current = charterBroken;
       finalizeRun(withMgr);
       return;
@@ -776,7 +825,7 @@ export default function Game() {
   }
 
   function playOneSeason() {
-    const scene = scenes[current];
+    const scene = resolveScene(slots[current]);
     const totalForEra = scene.seasons || 5;
     const isLast = seasonsLeft - 1 <= 0;
 
@@ -893,7 +942,7 @@ export default function Game() {
       sting("loss");
     }
 
-    const totalForEra = scenes[current].seasons || 5;
+    const totalForEra = resolveScene(slots[current]).seasons || 5;
     setSeasonLog((log) => [
       ...log,
       {
@@ -924,7 +973,7 @@ export default function Game() {
   // =====================================================================
   // RENDER
   // =====================================================================
-  const scene = scenes[current];
+  // `scene` is the per-era memo resolved above (keyed on `current`).
   const sceneTitle = phase === "scene" || phase === "seasons" ? scene?.sp : "";
   const yearLine = useMemo(() => {
     if (phase === "founding" || phase === "summary" || phase === "manager") return "1900 · Before the first season";

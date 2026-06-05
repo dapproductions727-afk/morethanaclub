@@ -1,6 +1,6 @@
-import type { Scene, BigMatch } from "./types";
+import type { Scene, SceneSlot, RunContext } from "./types";
 
-// The 14 heavy decisions of the century. All prose is verbatim from the
+// The heavy decisions of the century. All prose is verbatim from the
 // prototype. {PLACE} is filled at render time; ${STR} is replaced with the
 // live squad strength. Each choice mutates state through the RunContext.
 //
@@ -8,8 +8,13 @@ import type { Scene, BigMatch } from "./types";
 // television, floodlights, data, cameras. It drives the Civ-style tech timeline
 // and the look of the stadium scene. It is presentational; the meter math is
 // unchanged from the original design.
+//
+// Most slots are bare Scene objects. A few are variant slots: the same era
+// renders a different card depending on who you've been (resolveScene picks the
+// first variant whose when() is true, else the fallback). The era spine stays
+// fixed and in order — only the content of select slots forks.
 
-export const scenes: Scene[] = [
+export const slots: SceneSlot[] = [
   {
     sp: "The centre-forward",
     year: "{PLACE} · 1906",
@@ -20,6 +25,7 @@ export const scenes: Scene[] = [
         t: "Sell him. The fee builds something lasting.",
         note: "The money comes in. The crowd takes a long time to forgive.",
         tags: ["commercial"],
+        mark: "sold-cf",
         run: (c) => {
           c.meters.money += 18;
           c.meters.fans -= 12;
@@ -31,6 +37,7 @@ export const scenes: Scene[] = [
         t: "Hold him. Some things aren't for sale.",
         note: "He stays. The money doesn't. The crowd remembers.",
         tags: [],
+        mark: "held-cf",
         run: (c) => {
           c.meters.money -= 8;
           c.meters.soul += 15;
@@ -131,34 +138,72 @@ export const scenes: Scene[] = [
     ],
   },
 
-  {
-    sp: "The board",
-    year: "{PLACE} · 1930s",
-    seasons: 6,
-    pr: "Your senior men are ageing. Pour money into the academy now, or save it?",
-    ch: [
-      {
-        t: "Fund the academy and promote a club man to coach.",
-        note: "Costs money. Future locals get better.",
-        tags: ["homegrown-hold"],
-        run: (c) => {
-          c.meters.money -= 15;
-          c.meters.soul += 10;
-          c.boostUnder(25, 2);
+  // BRANCH 2 — the 1930s ground decision forks on whether you sold the
+  // centre-forward a generation earlier. Sold: the fee has sat in the bank and
+  // the board wants a grand new stand. Held: there's no windfall, only make-do.
+  // Shared fields are spread so the timeline stays identical across variants.
+  ((): SceneSlot => {
+    const base1930s = { year: "{PLACE} · 1930s", seasons: 6 };
+    const grandStand: Scene = {
+      ...base1930s,
+      sp: "The grand stand",
+      pr: "The fee you took for the centre-forward in 1906 has sat in the bank for a generation, gathering interest and resentment in equal measure. The board wants to spend it at last — a great covered stand of steel and timber, the biggest in the division. A monument, or an extravagance.",
+      ch: [
+        {
+          t: "Build the grand stand. Let them see what the club became.",
+          note: "Bigger crowds, a landmark on the skyline. The academy goes hungry another decade.",
+          tags: ["commercial"],
+          fx: { stadium: "newStand" },
+          run: (c) => {
+            c.meters.money -= 10;
+            c.meters.fans += 18;
+            c.meters.soul -= 4;
+          },
         },
-      },
-      {
-        t: "Hire a famous manager from abroad instead.",
-        note: "Results now. The club's own people are passed over.",
-        tags: ["glamour", "commercial"],
-        run: (c) => {
-          c.meters.money -= 10;
-          c.meters.soul -= 8;
-          c.boostUnder(30, 1);
+        {
+          t: "Bank it. The club has lasted this long being careful.",
+          note: "The money stays safe. The ground stays what it was.",
+          tags: [],
+          run: (c) => {
+            c.meters.money += 8;
+            c.meters.fans -= 5;
+            c.meters.soul += 3;
+          },
         },
-      },
-    ],
-  },
+      ],
+    };
+    const makeDo: Scene = {
+      ...base1930s,
+      sp: "The old ground",
+      pr: "Money has always been tight here. The ground is the same timber and cinder it has been since the start, and it is showing its age. There is no windfall to draw on — only what the gate brings in, and the senior men are ageing.",
+      ch: [
+        {
+          t: "Patch and paint. Keep it honest, keep it standing.",
+          note: "Costs a little. The faithful love that you never pretended to be more.",
+          tags: ["homegrown-hold"],
+          run: (c) => {
+            c.meters.money -= 6;
+            c.meters.soul += 10;
+            c.meters.fans += 5;
+          },
+        },
+        {
+          t: "Let it weather. Spend on the youngsters instead.",
+          note: "The ground creaks. The academy gets better.",
+          tags: ["homegrown-hold"],
+          run: (c) => {
+            c.meters.money -= 8;
+            c.meters.soul -= 2;
+            c.boostUnder(25, 2);
+          },
+        },
+      ],
+    };
+    return {
+      variants: [{ when: () => did("sold-cf"), scene: grandStand }],
+      fallback: makeDo,
+    };
+  })(),
 
   {
     sp: "The broadcaster",
@@ -225,42 +270,82 @@ export const scenes: Scene[] = [
     ],
   },
 
-  {
-    sp: "The camera crew",
-    year: "{PLACE} · 1965",
-    seasons: 6,
-    tech: "television",
-    bigMatch: {
-      kind: "Cup final",
-      setup: "Wembley. The first time the cameras carry you to the whole country. 1–1, the last minute, a corner swings in.",
-      prompt: "Tap when the ball drops to your striker's boot.",
-      rewardWin: { fans: 14, money: 8, soul: 6, trophy: true },
-      rewardLose: { fans: 2, money: 3, soul: -2 },
-    },
-    pr: "Television money is different from radio money. They want to move your Saturday match to Sunday evening for a bigger audience. You'd earn more than a decade of gate receipts. The men who stand behind the goal have worked Sundays since 1945.",
-    ch: [
-      {
-        t: "Take the money. Shift the kick-off.",
-        note: "The cheque clears. The old supporters drift away.",
-        tags: ["commercial"],
-        run: (c) => {
-          c.meters.money += 25;
-          c.meters.fans -= 25;
-          c.meters.soul -= 5;
-        },
+  // BRANCH 1 — the television era forks on the 1921 women's ban. If you defied
+  // the FA back then, the broadcaster is wary of your reputation as
+  // troublemakers: a smaller, hedged offer, but they need your story more than
+  // you need their cheque. Defiance compounds, 44 years on.
+  ((): SceneSlot => {
+    const base1965 = {
+      year: "{PLACE} · 1965",
+      seasons: 6,
+      tech: "television",
+      bigMatch: {
+        kind: "Cup final",
+        setup: "Wembley. The first time the cameras carry you to the whole country. 1–1, the last minute, a corner swings in.",
+        prompt: "Tap when the ball drops to your striker's boot.",
+        rewardWin: { fans: 14, money: 8, soul: 6, trophy: true },
+        rewardLose: { fans: 2, money: 3, soul: -2 },
       },
-      {
-        t: "Refuse. Saturday is Saturday.",
-        note: "The money goes elsewhere. The faithful stay.",
-        tags: [],
-        run: (c) => {
-          c.meters.money -= 15;
-          c.meters.soul += 15;
-          c.meters.fans += 10;
+    };
+    const obeyed: Scene = {
+      ...base1965,
+      sp: "The camera crew",
+      pr: "Television money is different from radio money. They want to move your Saturday match to Sunday evening for a bigger audience. You'd earn more than a decade of gate receipts. The men who stand behind the goal have worked Sundays since 1945.",
+      ch: [
+        {
+          t: "Take the money. Shift the kick-off.",
+          note: "The cheque clears. The old supporters drift away.",
+          tags: ["commercial"],
+          run: (c) => {
+            c.meters.money += 25;
+            c.meters.fans -= 25;
+            c.meters.soul -= 5;
+          },
         },
-      },
-    ],
-  },
+        {
+          t: "Refuse. Saturday is Saturday.",
+          note: "The money goes elsewhere. The faithful stay.",
+          tags: [],
+          run: (c) => {
+            c.meters.money -= 15;
+            c.meters.soul += 15;
+            c.meters.fans += 10;
+          },
+        },
+      ],
+    };
+    const wary: Scene = {
+      ...base1965,
+      sp: "The wary broadcaster",
+      pr: "Television money is different from radio money. But the men in the gallery remember 1921 — the club that defied the FA over the women's game and never once apologised. They want you on screen for the audience you bring, and they are nervous of you for exactly the same reason. The offer is smaller, hedged with conditions. They need your story more than you need their cheque.",
+      ch: [
+        {
+          t: "Take their cautious money. Shift the kick-off.",
+          note: "A thinner cheque than the giants got. The old supporters still drift away.",
+          tags: ["commercial"],
+          run: (c) => {
+            c.meters.money += 18;
+            c.meters.fans -= 25;
+            c.meters.soul -= 5;
+          },
+        },
+        {
+          t: "Refuse. You didn't bow in 1921 and you won't bow now.",
+          note: "They'll be back — they always need the club that says no. The faithful roar.",
+          tags: [],
+          run: (c) => {
+            c.meters.money -= 10;
+            c.meters.soul += 18;
+            c.meters.fans += 12;
+          },
+        },
+      ],
+    };
+    return {
+      variants: [{ when: () => defiedBanFlag(), scene: wary }],
+      fallback: obeyed,
+    };
+  })(),
 
   {
     sp: "The terraces",
@@ -520,54 +605,124 @@ export const scenes: Scene[] = [
     ],
   },
 
-  {
-    sp: "The invitation",
-    year: "{PLACE} · 2020",
-    seasons: 4,
-    tech: "streaming",
-    bigMatch: {
-      kind: "The derby",
-      setup: "The old enemy, the rivals who took the money you refused. Their fans have travelled. Stoppage time, level, a chance at the near post.",
-      prompt: "Tap to shoot — silence the away end.",
-      rewardWin: { fans: 15, money: 6, soul: 6 },
-      rewardLose: { fans: -8, money: 1, soul: -3 },
-    },
-    pr: "An envelope arrives. Twelve clubs are forming a closed European competition. Guaranteed matches, guaranteed money, no promotion, no relegation. A standing invitation to the top table, forever. Your city would be on the poster.",
-    ch: [
-      {
-        t: "Sign it. This is what the club has been building toward.",
-        note: "The money is transformative. Half the supporters never come back.",
-        tags: ["ownership", "commercial"],
-        run: (c) => {
-          c.meters.money += 30;
-          c.meters.fans -= 40;
-          c.meters.soul -= 8;
-          c.setFlag("charterBroken", true);
-        },
+  // BRANCH 3 — the closed-league invitation reads differently depending on what
+  // the club has become. Drifted commercial: it arrives as the natural next
+  // step. Deep community roots: it arrives as an insult. Otherwise: the
+  // balanced framing. Meter swings are identical across all three — only the
+  // framing forks, so no path is mechanically easier than another.
+  ((): SceneSlot => {
+    const base2020 = {
+      year: "{PLACE} · 2020",
+      seasons: 4,
+      tech: "streaming",
+      bigMatch: {
+        kind: "The derby",
+        setup: "The old enemy, the rivals who took the money you refused. Their fans have travelled. Stoppage time, level, a chance at the near post.",
+        prompt: "Tap to shoot — silence the away end.",
+        rewardWin: { fans: 15, money: 6, soul: 6 },
+        rewardLose: { fans: -8, money: 1, soul: -3 },
       },
-      {
-        t: "Refuse. Publicly.",
-        note: "The top table closes without you. The terraces sing your name.",
-        tags: ["ownership-hold"],
-        run: (c) => {
-          c.meters.soul += 20;
-          c.meters.fans += 25;
-          c.meters.money -= 20;
+    };
+    const signRun = (c: RunContext) => {
+      c.meters.money += 30;
+      c.meters.fans -= 40;
+      c.meters.soul -= 8;
+      c.setFlag("charterBroken", true);
+    };
+    const refuseRun = (c: RunContext) => {
+      c.meters.soul += 20;
+      c.meters.fans += 25;
+      c.meters.money -= 20;
+    };
+    const balanced: Scene = {
+      ...base2020,
+      sp: "The invitation",
+      pr: "An envelope arrives. Twelve clubs are forming a closed European competition. Guaranteed matches, guaranteed money, no promotion, no relegation. A standing invitation to the top table, forever. Your city would be on the poster.",
+      ch: [
+        {
+          t: "Sign it. This is what the club has been building toward.",
+          note: "The money is transformative. Half the supporters never come back.",
+          tags: ["ownership", "commercial"],
+          run: signRun,
         },
-      },
-    ],
-  },
+        {
+          t: "Refuse. Publicly.",
+          note: "The top table closes without you. The terraces sing your name.",
+          tags: ["ownership-hold"],
+          run: refuseRun,
+        },
+      ],
+    };
+    const drifted: Scene = {
+      ...base2020,
+      sp: "The natural next step",
+      pr: "The envelope was always coming, and everyone in the boardroom knows it. Twelve clubs, a closed European competition, guaranteed money forever — and after everything you've already sold to get here, the men around the table assume your signature is a formality. This is simply where the road you chose was always leading.",
+      ch: [
+        {
+          t: "Sign it. Of course. This was the whole point.",
+          note: "The money is transformative. The supporters you have left were going anyway.",
+          tags: ["ownership", "commercial"],
+          run: signRun,
+        },
+        {
+          t: "Refuse — even now, even here.",
+          note: "After all of it, you stop at the last door. The terraces are stunned, then sing.",
+          tags: ["ownership-hold"],
+          run: refuseRun,
+        },
+      ],
+    };
+    const rooted: Scene = {
+      ...base2020,
+      sp: "The insult",
+      pr: "An envelope arrives, and on the terraces they already know what it is. Twelve clubs, a closed shop, no promotion, no relegation — everything this club has stood against for a hundred years, posted through the letterbox like it was an honour. To even open it feels like a betrayal of every person who ever swore the charter meant something.",
+      ch: [
+        {
+          t: "Sign it. Betray everything. The money is the money.",
+          note: "Transformative, and unforgivable. The people who built this never speak to you again.",
+          tags: ["ownership", "commercial"],
+          run: signRun,
+        },
+        {
+          t: "Refuse. Burn it in the car park if they ask.",
+          note: "There was never a question. The top table closes without you. The city is yours.",
+          tags: ["ownership-hold"],
+          run: refuseRun,
+        },
+      ],
+    };
+    return {
+      variants: [
+        { when: () => culture() > 20, scene: drifted },
+        { when: () => culture() < -20, scene: rooted },
+      ],
+      fallback: balanced,
+    };
+  })(),
 ];
 
-// These two read live game flags. They are wired by the engine at runtime so
-// the scene conditions and notes can reflect the current state. Default to safe
-// values until the engine binds them.
+// These read live game state. They are wired by the engine at runtime so scene
+// conditions, notes, and variant selection can reflect the current run. Default
+// to safe values until the engine binds them.
+type MeterKey = "money" | "soul" | "fans";
 let _swore: (k: string) => boolean = () => false;
 let _defiedBan: () => boolean = () => false;
+let _did: (mark: string) => boolean = () => false;
+let _meter: (k: MeterKey) => number = () => 50;
+let _culture: () => number = () => 0;
 
-export function bindSceneHooks(sworeFn: (k: string) => boolean, defiedBanFn: () => boolean) {
+export function bindSceneHooks(
+  sworeFn: (k: string) => boolean,
+  defiedBanFn: () => boolean,
+  didFn: (mark: string) => boolean = () => false,
+  meterFn: (k: MeterKey) => number = () => 50,
+  cultureFn: () => number = () => 0,
+) {
   _swore = sworeFn;
   _defiedBan = defiedBanFn;
+  _did = didFn;
+  _meter = meterFn;
+  _culture = cultureFn;
 }
 
 function swore(k: string): boolean {
@@ -576,3 +731,32 @@ function swore(k: string): boolean {
 function defiedBanFlag(): boolean {
   return _defiedBan();
 }
+// Did the player take the choice marked `mark` earlier this run? Drives Tier 1
+// scene-variant branching.
+export function did(mark: string): boolean {
+  return _did(mark);
+}
+export function meter(k: MeterKey): number {
+  return _meter(k);
+}
+export function culture(): number {
+  return _culture();
+}
+
+// Resolve a slot to the single Scene the player will face: the first variant
+// whose when() is true, otherwise the fallback. A bare Scene resolves to itself.
+// No RNG — selection is purely a function of the player's past decisions, so it
+// stays deterministic in seeded daily mode.
+export function resolveScene(slot: SceneSlot): Scene {
+  if ("variants" in slot) {
+    const hit = slot.variants.find((v) => v.when());
+    return hit ? hit.scene : slot.fallback;
+  }
+  return slot;
+}
+
+export const SCENE_COUNT = slots.length;
+
+// Back-compat flat view (the default/fallback path) for tooling and the engine
+// re-export. The live game walks `slots` + `resolveScene`, not this.
+export const scenes: Scene[] = slots.map((s) => ("variants" in s ? s.fallback : s));

@@ -9,7 +9,7 @@ import type { Meters, Player, Founding } from "./types";
 const KEY = "mtac.savegame.v1";
 
 export interface SaveGame {
-  version: 1;
+  version: 2;
   savedAt: number;
   // Founding + identity
   founding: Founding;
@@ -21,6 +21,9 @@ export interface SaveGame {
   current: number; // scene index the player is about to play
   charterBroken: boolean;
   defiedBan: boolean;
+  // Branch-worthy past choices (by mark), so a resumed run resolves the right
+  // scene variants. Missing on legacy v1 saves → treated as empty.
+  decisions: string[];
   unlockedTech: string[];
   // Stadium decision flags
   rebuilt: boolean;
@@ -47,9 +50,13 @@ export function readSave(): SaveGame | null {
   try {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
-    const s = JSON.parse(raw) as SaveGame;
-    if (s.version !== 1) return null;
-    return s;
+    const s = JSON.parse(raw) as SaveGame & { version: number };
+    // Accept v1 (pre-branching) and v2 saves. Default missing fields so an
+    // old save resumes cleanly onto the fallback scene path.
+    if (s.version !== 1 && s.version !== 2) return null;
+    if (!Array.isArray(s.decisions)) s.decisions = [];
+    s.version = 2;
+    return s as SaveGame;
   } catch {
     return null;
   }

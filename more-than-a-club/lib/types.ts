@@ -53,6 +53,8 @@ export interface Choice {
   cond?: () => boolean;
   // optional stadium/visual effect applied when this choice is picked
   fx?: ChoiceFx;
+  // stable id recorded into run history for later scene branching, e.g. "sold-cf"
+  mark?: string;
   // run mutates meters/squad directly through the provided context.
   run: (ctx: RunContext) => void;
   _idx?: number;
@@ -69,6 +71,17 @@ export interface Scene {
   pr: string | (() => string);
   ch: Choice[];
 }
+
+// ---- Scene-variant branching (Tier 1) ----
+// A scene slot is either a single Scene (the common case) or a set of variant
+// cards chosen by past decisions. Variants share year/tech/bigMatch so the
+// timeline and stadium stay consistent; only sp/pr/ch/note differ.
+export interface SceneVariant {
+  when: () => boolean; // reads did()/swore()/meter()/culture() via the hook bridge
+  scene: Scene;
+}
+
+export type SceneSlot = Scene | { variants: SceneVariant[]; fallback: Scene };
 
 // A choice can carry stadium effects, applied when picked, that change how the
 // ground is drawn for the rest of the game.
