@@ -50,13 +50,12 @@ export function readSave(): SaveGame | null {
   try {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
-    const s = JSON.parse(raw) as SaveGame & { version: number };
+    const parsed = JSON.parse(raw) as Omit<SaveGame, "version"> & { version: number };
     // Accept v1 (pre-branching) and v2 saves. Default missing fields so an
     // old save resumes cleanly onto the fallback scene path.
-    if (s.version !== 1 && s.version !== 2) return null;
-    if (!Array.isArray(s.decisions)) s.decisions = [];
-    s.version = 2;
-    return s as SaveGame;
+    if (parsed.version !== 1 && parsed.version !== 2) return null;
+    if (!Array.isArray(parsed.decisions)) parsed.decisions = [];
+    return { ...parsed, version: 2 };
   } catch {
     return null;
   }
